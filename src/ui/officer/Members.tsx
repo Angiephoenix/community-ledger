@@ -45,7 +45,7 @@ export function Members({ ledger, onViewReceipt }: { ledger: LedgerState; onView
                     ) : (
                       <span className="chip chip-later">Up to date</span>
                     )}
-                    {s.openAttempts.length > 0 && (
+                    {s.pendingAttempts.length > 0 && (
                       <span className="chip chip-soon">
                         <IconClock size={16} /> Payment being checked
                       </span>

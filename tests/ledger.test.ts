@@ -67,7 +67,7 @@ describe('fixtures (Member A at the default clock)', () => {
     expect(memberSummary(s, 'mem-b').outstandingKobo).toBe(0);
     expect(memberSummary(s, 'mem-b').charges).toHaveLength(3);
     expect(memberSummary(s, 'mem-c').paidKobo).toBe(0);
-    expect(memberSummary(s, 'mem-c').openAttempts).toHaveLength(1);
+    expect(memberSummary(s, 'mem-c').pendingAttempts).toHaveLength(1);
     expect(memberSummary(s, 'mem-d').charges).toHaveLength(0);
   });
 

@@ -1,6 +1,6 @@
 import { formatNaira, sumKobo, type Kobo } from './money';
 import { lagosDateOf } from './time';
-import { audit, chargeOutstanding, draft, memberName, nextId } from './ledger';
+import { attemptChargesSettled, audit, chargeOutstanding, draft, memberName, nextId } from './ledger';
 import { cancelRemindersForPaidCharges } from './reminders';
 import type { Allocation, InboundEvent, LedgerState, Payment, PaymentAttempt, Receipt } from './types';
 
@@ -56,7 +56,7 @@ function findAttempt(s: LedgerState, attemptId: string) {
   return a;
 }
 
-/** Provider says the payment is still processing. Balances do not change. */
+/** The member submitted and the provider says it is still processing. Balances do not change. */
 export function markAttemptPending(state: LedgerState, attemptId: string): LedgerState {
   const s = draft(state);
   const a = findAttempt(s, attemptId);
@@ -68,12 +68,26 @@ export function markAttemptPending(state: LedgerState, attemptId: string): Ledge
   return s;
 }
 
+/**
+ * Checkout closed before anything was submitted. Only a started attempt can be
+ * abandoned; a pending one stays pending because money may still be on its way.
+ */
+export function abandonAttempt(state: LedgerState, attemptId: string): LedgerState {
+  const s = draft(state);
+  const a = findAttempt(s, attemptId);
+  if (a.status === 'started') {
+    a.status = 'abandoned';
+    a.updatedAt = s.now;
+    audit(s, 'member (demo)', 'Checkout closed', `${a.reference} closed before payment. Nothing submitted.`);
+  }
+  return s;
+}
+
 /** Simulated provider verification that comes back unresolved. */
 export function recordUnresolvedCheck(state: LedgerState, attemptId: string): LedgerState {
   const s = draft(state);
   const a = findAttempt(s, attemptId);
-  if (a.status === 'pending' || a.status === 'started') {
-    a.status = 'pending';
+  if (a.status === 'pending') {
     a.verificationChecks += 1;
     a.updatedAt = s.now;
     audit(s, 'simulator', 'Verification unresolved', `${a.reference}: check ${a.verificationChecks} still unresolved`);
@@ -235,6 +249,16 @@ export function processPaymentEvent(state: LedgerState, e: ProviderPaymentEvent)
   s.receipts.push(receipt);
 
   const cancelled = cancelRemindersForPaidCharges(s, attempt.chargeIds, 'Paid before sending');
+
+  // Another submitted payment may still be waiting for the same dues. It keeps its
+  // own status: only the provider can confirm or fail it. Note the overlap.
+  for (const other of s.attempts) {
+    if (other.id === attempt.id || other.status !== 'pending') continue;
+    if (!other.chargeIds.some((id) => attempt.chargeIds.includes(id))) continue;
+    if (attemptChargesSettled(s, other)) {
+      audit(s, 'system', 'Earlier payment still unconfirmed', `${other.reference}: its dues are now paid by ${payment.providerRef}. If it is confirmed it will be kept as credit.`);
+    }
+  }
 
   // Any "still unconfirmed" task for this attempt is now settled by the system.
   for (const t of s.tasks) {

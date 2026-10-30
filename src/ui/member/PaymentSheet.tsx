@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatNaira } from '../../domain/money';
 import { memberSummary } from '../../domain/ledger';
 import type { LedgerState, PaymentAttempt } from '../../domain/types';
@@ -56,11 +56,22 @@ export function PaymentSheet({
     }
   }
 
+  // Each stage replaces the focused button, so move focus to the new main action.
+  useEffect(() => {
+    document.querySelector<HTMLElement>('.pay-sheet[open] [data-autofocus]')?.focus();
+  }, [stage]);
+
+  // Closing before choosing an outcome means nothing was submitted.
+  function close() {
+    if (stage === 'review') actions.abandonPayment(attempt.id);
+    onClose();
+  }
+
   const title =
     stage === 'success' ? 'Payment received' : stage === 'pending' ? 'Payment being checked' : stage === 'failed' ? 'Payment didn’t go through' : 'Pay your dues';
 
   return (
-    <Modal open onClose={onClose} title={title} className="pay-sheet" hideTitle={stage === 'success'}>
+    <Modal open onClose={close} title={title} className="pay-sheet" hideTitle={stage === 'success'}>
       {stage === 'review' && (
         <div className="pay-body">
           <p className="pay-kicker">You’re paying</p>
@@ -80,7 +91,7 @@ export function PaymentSheet({
               <IconInfo /> Simulated checkout
             </p>
             <p>No card details are collected here and no money moves. Choose how this demo payment ends.</p>
-            <button type="button" className="btn btn-primary btn-block" onClick={() => simulate('success')} autoFocus>
+            <button type="button" className="btn btn-primary btn-block" onClick={() => simulate('success')} data-autofocus>
               Simulate payment <IconArrow />
             </button>
             <div className="sim-alt">
@@ -124,7 +135,7 @@ export function PaymentSheet({
               <span>Remaining dues</span>
               <strong>{formatNaira(remaining)}</strong>
             </div>
-            <button type="button" className="btn btn-primary btn-block" onClick={() => onViewReceipt(receipt.id)}>
+            <button type="button" className="btn btn-primary btn-block" onClick={() => onViewReceipt(receipt.id)} data-autofocus>
               View receipt
             </button>
             <p className="fine center">Simulated payment · No real money moved</p>
@@ -142,7 +153,7 @@ export function PaymentSheet({
             Nothing has been taken off your balance yet. Reminders for these dues pause for up to 48 hours while it’s checked, then
             resume if it’s still unconfirmed.
           </p>
-          <button type="button" className="btn btn-primary btn-block" onClick={onClose}>
+          <button type="button" className="btn btn-primary btn-block" onClick={close} data-autofocus>
             Done
           </button>
         </div>
@@ -155,10 +166,10 @@ export function PaymentSheet({
           </span>
           <p className="pay-status-title">This payment didn’t go through</p>
           <p>Your balance hasn’t changed. You can try again.</p>
-          <button type="button" className="btn btn-primary btn-block" onClick={retry}>
+          <button type="button" className="btn btn-primary btn-block" onClick={retry} data-autofocus>
             Try again
           </button>
-          <button type="button" className="btn btn-ghost btn-block" onClick={onClose}>
+          <button type="button" className="btn btn-ghost btn-block" onClick={close}>
             Close
           </button>
         </div>
@@ -171,7 +182,7 @@ export function PaymentSheet({
           </span>
           <p className="pay-status-title">This payment needs checking</p>
           <p>Something about it didn’t match, so it wasn’t applied. An officer will look at it.</p>
-          <button type="button" className="btn btn-primary btn-block" onClick={onClose}>
+          <button type="button" className="btn btn-primary btn-block" onClick={close} data-autofocus>
             Close
           </button>
         </div>

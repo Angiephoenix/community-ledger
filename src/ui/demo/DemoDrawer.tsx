@@ -4,7 +4,7 @@ import { formatDateTime, lagosInstant } from '../../domain/time';
 import { memberName } from '../../domain/ledger';
 import type { LedgerState } from '../../domain/types';
 import { DEFAULT_CLOCK } from '../../domain/fixtures';
-import { actions, useAnalyticsEvents, type ViewState } from '../../state/store';
+import { actions, useAnalyticsEvents, useApp, type ViewState } from '../../state/store';
 import { IconClose } from '../common/Icons';
 
 // Technical demo controls, kept apart from the product UI. The view switch is
@@ -12,6 +12,7 @@ import { IconClose } from '../common/Icons';
 export function DemoDrawer({ ledger, view, open, onClose }: { ledger: LedgerState; view: ViewState; open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const events = useAnalyticsEvents();
+  const { lastNotice } = useApp();
 
   useEffect(() => {
     const d = ref.current;
@@ -20,7 +21,7 @@ export function DemoDrawer({ ledger, view, open, onClose }: { ledger: LedgerStat
     if (!open && d.open) d.close();
   }, [open]);
 
-  const openAttempts = ledger.attempts.filter((a) => a.status === 'pending' || a.status === 'started');
+  const openAttempts = ledger.attempts.filter((a) => a.status === 'pending');
   const lastRecorded = [...ledger.inbound].reverse().find((e) => e.outcome === 'recorded');
 
   return (
@@ -47,6 +48,12 @@ export function DemoDrawer({ ledger, view, open, onClose }: { ledger: LedgerStat
               <IconClose />
             </button>
           </div>
+
+          {lastNotice && (
+            <p className={`drawer-result drawer-result-${lastNotice.tone}`}>
+              <strong>Last result:</strong> {lastNotice.text}
+            </p>
+          )}
 
           <section className="drawer-sec">
             <h3>View as</h3>
@@ -125,7 +132,7 @@ export function DemoDrawer({ ledger, view, open, onClose }: { ledger: LedgerStat
                   <li key={a.id} className="row drawer-attempt">
                     <span className="row-main">
                       <strong>
-                        {memberName(ledger, a.memberId)} · {formatNaira(a.amountKobo)} · {a.status}
+                        {memberName(ledger, a.memberId)} · {formatNaira(a.amountKobo)} · pending
                       </strong>
                       <span className="fine">
                         {a.reference} · {a.verificationChecks} check{a.verificationChecks === 1 ? '' : 's'}

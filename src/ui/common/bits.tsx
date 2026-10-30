@@ -48,12 +48,27 @@ export function Modal({
   hideTitle?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const returnTo = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
+    if (open && !d.open) {
+      returnTo.current = document.activeElement as HTMLElement | null;
+      d.showModal();
+      // Start on the dialog's main action rather than its close button.
+      d.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    }
     if (!open && d.open) d.close();
   }, [open]);
+  // A dialog that unmounts while open never fires the browser's own focus
+  // restore, so return focus to whatever opened it.
+  useEffect(
+    () => () => {
+      const target = returnTo.current;
+      if (target?.isConnected) target.focus();
+    },
+    [],
+  );
   return (
     <dialog
       ref={ref}
@@ -62,6 +77,10 @@ export function Modal({
       onCancel={(e) => {
         e.preventDefault();
         onClose();
+      }}
+      onClose={() => {
+        const target = returnTo.current;
+        if (target?.isConnected && !document.activeElement?.closest('dialog[open]')) target.focus();
       }}
       onClick={(e) => {
         if (e.target === ref.current) onClose();

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { formatNaira, sumKobo } from '../../domain/money';
 import { formatDay, lagosHour } from '../../domain/time';
-import { memberName, memberSummary, type ChargeView } from '../../domain/ledger';
+import { attemptChargesSettled, memberName, memberSummary, type ChargeView } from '../../domain/ledger';
 import type { LedgerState, PaymentAttempt } from '../../domain/types';
 import { actions } from '../../state/store';
 import { EmptyState, StatusChip } from '../common/bits';
@@ -89,7 +89,7 @@ export function MemberOverview({
             </div>
           )}
           {unpaid.length > 0 ? (
-            <a className="btn btn-light" href="#choose">
+            <a className="btn btn-light hero-choose" href="#choose">
               Choose what to pay <IconArrow />
             </a>
           ) : lastReceipt ? (
@@ -125,12 +125,19 @@ export function MemberOverview({
         </aside>
       </section>
 
-      {summary.openAttempts.map((a) => (
-        <p key={a.id} className="notice notice-pending" role="status">
-          <IconClock /> We’re checking a payment of {formatNaira(a.amountKobo)} ({a.reference}). Your balance won’t change until it’s
-          confirmed.
-        </p>
-      ))}
+      {summary.pendingAttempts.map((a) =>
+        attemptChargesSettled(ledger, a) ? (
+          <p key={a.id} className="notice notice-info" role="status">
+            <IconInfo /> The dues in an earlier payment of {formatNaira(a.amountKobo)} ({a.reference}) are now paid. That earlier payment is
+            still unconfirmed. If it goes through, it will be kept as credit and an officer will review it.
+          </p>
+        ) : (
+          <p key={a.id} className="notice notice-pending" role="status">
+            <IconClock /> We’re checking a payment of {formatNaira(a.amountKobo)} ({a.reference}). Your balance won’t change until it’s
+            confirmed.
+          </p>
+        ),
+      )}
       {summary.creditKobo > 0 && (
         <p className="notice notice-info">
           <IconInfo /> {formatNaira(summary.creditKobo)} you paid is more than you owed. It’s kept as credit while an officer reviews
@@ -212,7 +219,7 @@ export function MemberOverview({
 }
 
 function ChargeRow({ view, checked, onToggle }: { view: ChargeView; checked?: boolean; onToggle?: () => void }) {
-  const { charge, outstandingKobo, paidKobo, status, hasOpenAttempt } = view;
+  const { charge, outstandingKobo, paidKobo, status, hasPendingAttempt } = view;
   const partial = paidKobo > 0 && outstandingKobo > 0;
   const inputId = `pick-${charge.id}`;
   const body = (
@@ -222,7 +229,7 @@ function ChargeRow({ view, checked, onToggle }: { view: ChargeView; checked?: bo
         <span className="charge-sub">
           {status === 'paid' ? `${formatNaira(charge.amountKobo)} paid` : `Due ${formatDay(charge.dueDate)}`}
           {partial && ` · ${formatNaira(paidKobo)} of ${formatNaira(charge.amountKobo)} paid`}
-          {hasOpenAttempt && ' · Payment being checked'}
+          {hasPendingAttempt && (status === 'paid' ? ' · An earlier payment is still unconfirmed' : ' · Payment being checked')}
         </span>
         {partial && (
           <span className="progress" aria-hidden="true">

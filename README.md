@@ -30,7 +30,7 @@ npm run preview     # serve the production build locally
 
 ## Demo walkthrough
 
-The demo clock starts at **Tuesday 24 November 2026, 10:00 (Lagos)**. Open **Demo controls** (top right) to switch views, move the clock, deliver payment events and reset.
+The demo clock starts at **Tuesday 24 November 2026, 10:00 (Lagos)**. Open **Demo controls** (top right) to switch views, move the clock, deliver payment events and reset. On phones the clock is shown inside Demo controls; the demo notice stays visible at the top.
 
 1. **Officer runs the recurring job.** Switch to *Officer* and select *Run recurring dues*. The December meeting contribution (₦2,000, fictional) is charged once to each eligible member. Run it again: 0 new charges. (This adds ₦2,000 to Member A, so do steps 2–5 from a fresh reset if you want the exact scenario figures.)
 2. **Member A sees their dues.** ₦30,000 total: ₦15,000 overdue, ₦15,000 upcoming. Next due 30 November.
@@ -41,7 +41,10 @@ The demo clock starts at **Tuesday 24 November 2026, 10:00 (Lagos)**. Open **Dem
 7. **Reminders.** *Run reminders*, then run again: no duplicates. Paid charges are skipped. *Prepare message previews* rechecks each message just before simulated delivery. Messages say "Preview only · not sent".
 
 Other cases:
+- **Closing checkout**: closing the checkout before choosing an outcome records the attempt as *checkout closed · nothing submitted*. It is not shown as a payment being checked and does not pause reminders.
 - **Pending/failed**: in the checkout, choose *Simulate a pending payment* or *Simulate a failed payment*. The balance does not change. Reminders for that charge pause for 48 hours, then resume, and the attempt goes to Needs attention.
+- **Paying the same dues again while one is pending**: the dues show as paid, with a note that the earlier payment is still unconfirmed. The earlier attempt keeps its *pending* status (only the provider can settle it). If it is confirmed later, it is kept as credit for review.
+- **Stale reminders**: run reminders on 24 November, move the clock to 2 December (Demo controls), run reminders again and prepare previews. The old "due soon" reminder for the levy is cancelled as superseded and only the current overdue reminder is previewed.
 - **Two payments for one charge**: Demo controls → *Two payments for one charge*. Both payments are kept. The second becomes credit flagged in Needs attention.
 - **Special levy**: Officer → Dues → New levy. Pick members, review, publish.
 - **Other members**: Member B has paid everything; Member C has an unconfirmed payment; Member D has no dues yet.
@@ -53,11 +56,11 @@ Other cases:
 | `DuesRule` | A recurring dues definition, e.g. "Annual dues, ₦20,000, due 20 November". Not a debt. |
 | `Levy` | A one-off charge for selected members. |
 | `Charge` | One member's debt for one rule period or levy. Has a unique `key` so a rerun can't duplicate it. |
-| `PaymentAttempt` | What a member chose to pay, saved before checkout. Pending or failed attempts never reduce debt. |
+| `PaymentAttempt` | What a member chose to pay, saved before checkout. Status: `started` (checkout open), `abandoned` (closed before submitting), `pending` (submitted, awaiting the provider), `confirmed` or `failed`. Only a confirmation reduces debt. |
 | `Payment` | A confirmed incoming payment. One per provider transaction reference. |
 | `Allocation` | How much of a payment went to which charge. One payment can cover several charges. |
 | `Receipt` | Proof that the payment was recorded. Not proof of bank settlement. |
-| `OutboxMessage` | A message that would be sent. Milestone 1 only produces previews. |
+| `OutboxMessage` | A message that would be sent. Milestone 1 only produces previews. Unsent messages that no longer fit are cancelled with a reason (and `supersededBy`), never deleted. |
 | `Task` | An item in Needs attention: extra payments, held payments, unconfirmed payments, member reports. |
 | `AuditEvent` | A log line for each financial change or job run. |
 
@@ -79,7 +82,7 @@ Balances are never stored. What a member owes is always **charge amount + adjust
 | Payment provider boundary (simulator) | `src/adapters/paymentProvider.ts` |
 | Shared store and local persistence | `src/state/store.ts` |
 | Placeholder name, colours, contacts | `src/config/brand.ts` |
-| Tests | `tests/ledger.test.ts`, `tests/analytics.test.ts` |
+| Tests | `tests/ledger.test.ts`, `tests/corrections.test.ts`, `tests/analytics.test.ts` |
 
 UI components only read state and call store actions; they don't compute money themselves.
 
@@ -92,8 +95,9 @@ These are demo defaults, not the group's confirmed rules.
 - **Paid** takes precedence over any date status. A pending attempt is shown separately and never counts as paid.
 - **Allocation**: a payment is applied to the selected charges with the earliest due date first, never beyond what is owed. Any excess is kept as credit for officer review.
 - **Held payments**: an unknown reference, wrong amount or non-NGN currency is not applied. It goes to Needs attention.
-- **Reminder pause**: 48 hours while a payment is unconfirmed (`config.pendingPauseHours`).
+- **Reminder pause**: 48 hours while a *submitted* payment is unconfirmed (`config.pendingPauseHours`). An opened or abandoned checkout never pauses reminders.
 - **Overdue reminders**: at most one per charge per week overdue. Due-soon: one per charge.
+- **One current reminder per charge**: each time the reminder job runs, and again just before simulated delivery, an unsent reminder whose stage has passed (due soon → overdue, or an older overdue week) is cancelled as superseded. A backlog can't be released as a burst. Message wording is rebuilt from the current balance at delivery.
 - **Recurring job**: assesses the current period and the next one if it opens within 10 days. Members must be active and have joined by the period's issue date.
 - Receipts are numbered `RCT-<year>-<n>`.
 

@@ -3,7 +3,7 @@ import { buildFixtures, DEFAULT_CLOCK, SCHEMA_VERSION } from '../domain/fixtures
 import type { LedgerState, PaymentAttempt } from '../domain/types';
 import { runRecurringAssessment, publishLevy as publishLevyFn, type LevyInput } from '../domain/assessment';
 import { runReminderJob, deliverScheduledPreviews } from '../domain/reminders';
-import { markAttemptPending, processPaymentEvent, recordUnresolvedCheck, startAttempt, type ProcessResult, type ProviderPaymentEvent } from '../domain/payments';
+import { abandonAttempt, markAttemptPending, processPaymentEvent, recordUnresolvedCheck, startAttempt, type ProcessResult, type ProviderPaymentEvent } from '../domain/payments';
 import { reportDiscrepancy as reportDiscrepancyFn, reviewTask as reviewTaskFn } from '../domain/reports';
 import { chargeOutstanding, chargesFor } from '../domain/ledger';
 import { createLocalAnalytics, type Surface } from '../adapters/analytics';
@@ -31,19 +31,21 @@ interface AppState {
   ledger: LedgerState;
   view: ViewState;
   toasts: Toast[];
+  /** Latest action result, kept so Demo controls can show it inline. */
+  lastNotice: Toast | null;
   restoredNotice: string | null;
 }
 
 const defaultView: ViewState = { role: 'member', memberId: 'mem-a' };
 
 function load(): AppState {
-  const fresh = (notice: string | null): AppState => ({ ledger: buildFixtures(), view: defaultView, toasts: [], restoredNotice: notice });
+  const fresh = (notice: string | null): AppState => ({ ledger: buildFixtures(), view: defaultView, toasts: [], lastNotice: null, restoredNotice: notice });
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh(null);
     const parsed = JSON.parse(raw) as { ledger: LedgerState; view: ViewState };
     if (parsed?.ledger?.schemaVersion !== SCHEMA_VERSION) return fresh('Saved demo data was from an older version, so the demo was reset.');
-    return { ledger: parsed.ledger, view: parsed.view ?? defaultView, toasts: [], restoredNotice: null };
+    return { ledger: parsed.ledger, view: parsed.view ?? defaultView, toasts: [], lastNotice: null, restoredNotice: null };
   } catch {
     return fresh('Saved demo data could not be read, so the demo was reset.');
   }
@@ -84,7 +86,8 @@ export function track(name: Parameters<typeof analytics.capture>[0], surface: Su
 
 export function notify(text: string, tone: Toast['tone'] = 'info') {
   const toast = { id: ++toastId, text, tone };
-  state = { ...state, toasts: [...state.toasts, toast].slice(-3) };
+  // One message at a time, so notices never stack over tables and reports.
+  state = { ...state, toasts: [toast], lastNotice: toast };
   listeners.forEach((l) => l());
   setTimeout(() => dismissToast(toast.id), 6000);
 }
@@ -128,6 +131,11 @@ export const actions = {
       track('payment started', 'processing (simulated server)');
       return r.attempt;
     });
+  },
+
+  /** Checkout closed before a payment was submitted. */
+  abandonPayment(attemptId: string) {
+    guard(() => setLedger(abandonAttempt(state.ledger, attemptId)));
   },
 
   simulateOutcome(attemptId: string, outcome: 'success' | 'pending' | 'failed'): ProcessResult | 'pending' | undefined {

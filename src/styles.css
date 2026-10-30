@@ -201,7 +201,8 @@ select {
   color: var(--cobalt);
 }
 .logo-l {
-  color: var(--coral);
+  /* A deeper coral than the artwork so the mark reaches 3:1 on light backgrounds. */
+  color: #e0482b;
 }
 .nav {
   display: flex;
@@ -1490,27 +1491,32 @@ textarea.input {
   overflow-wrap: anywhere;
 }
 
-/* toasts */
+/* toasts: one at a time, compact, bottom-left so the right-hand drawer stays clear */
 .toasts {
   position: fixed;
-  left: 50%;
-  bottom: 1rem;
-  transform: translateX(-50%);
+  inset: auto auto 1rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
   z-index: 60;
-  display: grid;
-  gap: 0.5rem;
-  width: min(560px, calc(100vw - 32px));
+  width: min(400px, calc(100vw - 32px));
+}
+.toasts:empty {
+  display: none;
 }
 .toast {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.6rem 0.6rem 0.6rem 1rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
   border-radius: 14px;
   background: var(--ink);
   color: #fff;
-  box-shadow: var(--shadow-lg);
+  font-size: 0.9375rem;
+  box-shadow: 0 12px 30px rgba(10, 18, 60, 0.3);
   animation: rise 0.25s ease-out;
 }
 .toast-good {
@@ -1518,6 +1524,22 @@ textarea.input {
 }
 .toast-warn {
   background: #6b1d12;
+}
+.drawer-result {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  background: var(--blue-soft);
+  color: #13308f;
+  font-size: 0.9375rem;
+}
+.drawer-result-good {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.drawer-result-warn {
+  background: var(--red-soft);
+  color: var(--red-ink);
 }
 
 @keyframes rise {
@@ -1593,12 +1615,13 @@ textarea.input {
     font-size: 0.875rem;
     padding: 0.35rem 0.75rem;
   }
-  .demo-bar-text {
-    display: grid;
-    gap: 0;
+  /* The detailed clock lives in Demo controls on phones; the notice stays visible. */
+  .demo-bar-clock {
+    display: none;
   }
   .demo-bar-btn {
     padding: 0 0.7rem;
+    min-height: 36px;
   }
   .demo-bar-btn-label {
     display: none;
@@ -1606,43 +1629,86 @@ textarea.input {
   .demo-bar-btn-short {
     display: inline;
   }
+  .topbar-inner {
+    padding-top: 0.25rem;
+  }
+  .greeting {
+    font-size: 1.5rem;
+    margin: 0;
+  }
+  .page {
+    gap: 1rem;
+  }
+  .toasts {
+    inset: 0.5rem 1rem auto 1rem;
+    width: auto;
+  }
   .who-tag {
     display: none;
   }
   main {
     padding-top: 1rem;
   }
+  /* Compact hero: the artwork becomes a corner accent beside the amount, so the
+     itemised dues start within the first screen. */
   .hero {
     grid-template-columns: 1fr;
-    padding: 1.5rem 1.25rem 1.25rem;
-    border-radius: 24px;
-    gap: 0;
+    min-height: 0;
+    padding: 1.1rem 1.1rem 1rem;
+    border-radius: 22px;
+    gap: 0.75rem;
   }
   .hero-art {
-    position: relative;
-    inset: auto;
-    height: 170px;
-    margin: 0.5rem -1.25rem 0;
+    inset: -18px -40px auto auto;
+    width: 190px;
+    height: 128px;
     opacity: 1;
-    order: 1;
   }
   .hero-text {
-    order: 0;
+    gap: 0.5rem;
+  }
+  .hero-label {
+    font-size: 1.125rem;
+  }
+  .hero-amount {
+    font-size: 2.6rem;
+  }
+  .hero-split-value {
+    font-size: 1.25rem;
+  }
+  .hero-choose {
+    display: none;
   }
   .next-due {
-    order: 2;
     grid-column: 1;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    padding: 1rem 1.1rem;
+    gap: 0 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 14px;
+  }
+  .next-due::after {
+    display: none;
   }
   .next-due-icon {
-    grid-column: 2;
-    grid-row: 1 / span 3;
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: 36px;
+    height: 36px;
     margin: 0;
   }
+  .next-due-label {
+    font-size: 0.9375rem;
+  }
   .next-due-date {
-    font-size: 1.5rem;
+    grid-column: 2;
+    font-size: 1.125rem;
+  }
+  .next-due-amount {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    font-size: 1.0625rem;
+    color: var(--ink);
   }
   .hero-split {
     gap: 1rem;
@@ -1803,13 +1869,28 @@ textarea.input {
   body:has(dialog[open]) main {
     display: none;
   }
-  .modal {
-    position: static;
-    box-shadow: none;
+  /* Print an open dialog (receipt) as ordinary page content: no fixed top-layer
+     box, no entry animation and no dimming backdrop. */
+  .modal,
+  .modal[open] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    margin: 0;
     width: 100%;
+    max-width: none;
     max-height: none;
+    overflow: visible;
+    box-shadow: none;
+    border-radius: 0;
+    animation: none;
+    transform: none;
   }
-  .modal::backdrop {
+  .modal::backdrop,
+  .drawer::backdrop {
+    background: transparent;
+    backdrop-filter: none;
+  }
+  .drawer {
     display: none;
   }
   .print-area::before {

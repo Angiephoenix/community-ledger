@@ -1,8 +1,22 @@
 import { formatNaira } from '../../domain/money';
 import { formatDateTime } from '../../domain/time';
-import type { LedgerState } from '../../domain/types';
+import { attemptChargesSettled } from '../../domain/ledger';
+import type { LedgerState, PaymentAttempt } from '../../domain/types';
 import { EmptyState } from '../common/bits';
-import { IconAlert, IconCheckCircle, IconClock, IconReceipt } from '../common/Icons';
+import { IconAlert, IconCheckCircle, IconClock, IconMinus, IconReceipt } from '../common/Icons';
+
+function attemptLabel(status: PaymentAttempt['status']) {
+  switch (status) {
+    case 'pending':
+      return 'Submitted · being checked';
+    case 'failed':
+      return 'Didn’t go through';
+    case 'abandoned':
+      return 'Checkout closed · nothing submitted';
+    default:
+      return 'Checkout opened · nothing submitted yet';
+  }
+}
 
 export function MemberPayments({
   ledger,
@@ -22,18 +36,19 @@ export function MemberPayments({
 
       {attempts.length > 0 && (
         <section aria-labelledby="attempts-h" className="card">
-          <h2 id="attempts-h">Not completed</h2>
-          <p className="muted">These attempts haven’t changed your balance.</p>
+          <h2 id="attempts-h">Other payment attempts</h2>
+          <p className="muted">None of these changed your balance.</p>
           <ul className="rows">
             {attempts.map((a) => (
               <li key={a.id} className="row">
-                <span className={`state-dot ${a.status === 'failed' ? 'is-failed' : 'is-pending'}`}>
-                  {a.status === 'failed' ? <IconAlert size={18} /> : <IconClock size={18} />}
+                <span className={`state-dot ${a.status === 'failed' ? 'is-failed' : a.status === 'pending' ? 'is-pending' : 'is-muted'}`}>
+                  {a.status === 'failed' ? <IconAlert size={18} /> : a.status === 'pending' ? <IconClock size={18} /> : <IconMinus size={18} />}
                 </span>
                 <span className="row-main">
-                  <strong>{a.status === 'failed' ? 'Didn’t go through' : a.status === 'pending' ? 'Being checked' : 'Not finished'}</strong>
+                  <strong>{attemptLabel(a.status)}</strong>
                   <span className="muted">
                     {a.reference} · {formatDateTime(a.createdAt)}
+                    {a.status === 'pending' && attemptChargesSettled(ledger, a) && ' · Its dues have since been paid'}
                   </span>
                 </span>
                 <span className="row-amount">{formatNaira(a.amountKobo)}</span>

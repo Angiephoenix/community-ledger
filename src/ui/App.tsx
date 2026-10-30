@@ -3,11 +3,12 @@ import { brand } from '../config/brand';
 import { formatDateTime } from '../domain/time';
 import { memberName } from '../domain/ledger';
 import { openTasks } from '../domain/reports';
-import { actions, dismissToast, useApp, type Role } from '../state/store';
+import { actions, useApp, type Role } from '../state/store';
 import { Logo } from './common/Artwork';
 import { Modal } from './common/bits';
 import { IconClose, IconSliders } from './common/Icons';
 import { ReceiptView } from './common/ReceiptView';
+import { Toasts } from './common/Toasts';
 import { DemoDrawer } from './demo/DemoDrawer';
 import { MemberOverview } from './member/MemberOverview';
 import { MemberPayments } from './member/MemberPayments';
@@ -149,16 +150,7 @@ export function App() {
 
       <DemoDrawer ledger={ledger} view={view} open={drawer} onClose={() => setDrawer(false)} />
 
-      <div className="toasts no-print" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.tone}`}>
-            <span>{t.text}</span>
-            <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>
-              <IconClose size={16} />
-            </button>
-          </div>
-        ))}
-      </div>
+      <Toasts toasts={toasts} />
     </>
   );
 }

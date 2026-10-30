@@ -40,7 +40,7 @@ export function collectionReport(s: LedgerState): CollectionReport {
   const overdueKobo = sumKobo(
     s.charges.filter((c) => chargeStatus(s, c) === 'overdue').map((c) => chargeOutstanding(s, c)),
   );
-  const pending = s.attempts.filter((a) => a.status === 'pending' || a.status === 'started');
+  const pending = s.attempts.filter((a) => a.status === 'pending');
   const members = s.members.map((m) => memberSummary(s, m.id));
 
   const byTitle = new Map<string, ChargeGroupRow>();

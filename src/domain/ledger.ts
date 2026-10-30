@@ -71,8 +71,17 @@ export function chargesFor(s: LedgerState, memberId: string): Charge[] {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.id.localeCompare(b.id));
 }
 
-export function openAttemptsFor(s: LedgerState, memberId: string): PaymentAttempt[] {
-  return s.attempts.filter((a) => a.memberId === memberId && (a.status === 'pending' || a.status === 'started'));
+/** Submitted payments still waiting for the provider. Opened or abandoned checkouts are not included. */
+export function pendingAttemptsFor(s: LedgerState, memberId: string): PaymentAttempt[] {
+  return s.attempts.filter((a) => a.memberId === memberId && a.status === 'pending');
+}
+
+/** True when every charge a pending attempt covers has since been paid by another payment. */
+export function attemptChargesSettled(s: LedgerState, attempt: PaymentAttempt): boolean {
+  return attempt.chargeIds.every((id) => {
+    const c = s.charges.find((x) => x.id === id);
+    return !c || chargeOutstanding(s, c) === 0;
+  });
 }
 
 export interface ChargeView {
@@ -80,8 +89,8 @@ export interface ChargeView {
   outstandingKobo: Kobo;
   paidKobo: Kobo;
   status: ChargeStatus;
-  /** True when an unconfirmed attempt covers this charge. Does not reduce debt. */
-  hasOpenAttempt: boolean;
+  /** True when a submitted, unconfirmed payment covers this charge. Does not reduce debt. */
+  hasPendingAttempt: boolean;
 }
 
 export function chargeView(s: LedgerState, charge: Charge): ChargeView {
@@ -90,9 +99,7 @@ export function chargeView(s: LedgerState, charge: Charge): ChargeView {
     outstandingKobo: chargeOutstanding(s, charge),
     paidKobo: allocatedToCharge(s, charge.id),
     status: chargeStatus(s, charge),
-    hasOpenAttempt: s.attempts.some(
-      (a) => (a.status === 'pending' || a.status === 'started') && a.chargeIds.includes(charge.id),
-    ),
+    hasPendingAttempt: s.attempts.some((a) => a.status === 'pending' && a.chargeIds.includes(charge.id)),
   };
 }
 
@@ -107,7 +114,7 @@ export interface MemberSummary {
   creditKobo: Kobo;
   paymentsKobo: Kobo;
   nextDue: { date: LocalDate; amountKobo: Kobo } | null;
-  openAttempts: PaymentAttempt[];
+  pendingAttempts: PaymentAttempt[];
 }
 
 export function memberSummary(s: LedgerState, memberId: string): MemberSummary {
@@ -134,7 +141,7 @@ export function memberSummary(s: LedgerState, memberId: string): MemberSummary {
     creditKobo: sumKobo(payments.map((p) => unappliedOf(s, p))),
     paymentsKobo: sumKobo(payments.map((p) => p.amountKobo)),
     nextDue,
-    openAttempts: openAttemptsFor(s, memberId),
+    pendingAttempts: pendingAttemptsFor(s, memberId),
   };
 }
 

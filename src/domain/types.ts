@@ -76,7 +76,14 @@ export interface PaymentAttempt {
   chargeIds: string[];
   amountKobo: Kobo;
   currency: 'NGN';
-  status: 'started' | 'pending' | 'confirmed' | 'failed';
+  /**
+   * started: checkout opened, nothing submitted yet.
+   * abandoned: checkout closed before anything was submitted. No money is being checked.
+   * pending: submitted; the provider has not confirmed or failed it yet.
+   * confirmed / failed: the provider's answer.
+   * A late confirmation for an abandoned attempt is still recorded as a real payment.
+   */
+  status: 'started' | 'abandoned' | 'pending' | 'confirmed' | 'failed';
   createdAt: Instant;
   updatedAt: Instant;
   verificationChecks: number;
@@ -131,6 +138,8 @@ export interface OutboxMessage {
   body: string;
   createdAt: Instant;
   status: 'scheduled' | 'cancelled' | 'previewed';
+  /** Set when a newer reminder or a later stage replaced this unsent one. */
+  supersededBy?: string;
   statusReason?: string;
   updatedAt: Instant;
 }
