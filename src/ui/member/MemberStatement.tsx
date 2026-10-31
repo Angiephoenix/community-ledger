@@ -5,6 +5,7 @@ import { memberName } from '../../domain/ledger';
 import { memberStatement } from '../../domain/reports';
 import type { LedgerState } from '../../domain/types';
 import { brand } from '../../config/brand';
+import { appMode } from '../../config/mode';
 import { actions, notify, track } from '../../state/store';
 import { EmptyState } from '../common/bits';
 import { Logo } from '../common/Artwork';
@@ -134,12 +135,12 @@ export function MemberStatement({
           </button>
         ) : (
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              if (actions.reportDiscrepancy(message)) {
+              if (await actions.reportDiscrepancy(message)) {
                 setMessage('');
                 setReporting(false);
-                notify('Thanks. An officer will look at it. (Demo: nobody is contacted.)', 'good');
+                if (appMode === 'demo') notify('Thanks. An officer will look at it. (Demo: nobody is contacted.)', 'good');
               }
             }}
           >

@@ -1,3 +1,4 @@
+import { modeLabels } from '../../config/mode';
 import { useState } from 'react';
 import { formatNaira } from '../../domain/money';
 import { formatDateTime } from '../../domain/time';
@@ -32,11 +33,9 @@ export function OfficerOverview({ ledger, onGo }: { ledger: LedgerState; onGo: (
       <section className="card" aria-labelledby="auto-h">
         <div className="section-head">
           <h2 id="auto-h">Automation</h2>
-          <SimLabel>Run now · Demo</SimLabel>
+          <SimLabel>{modeLabels.runNow}</SimLabel>
         </div>
-        <p className="muted">
-          In the connected version these run on a schedule. Here you can run them yourself against the demo clock.
-        </p>
+        <p className="muted">{modeLabels.runNowHelp}</p>
         <div className="job-buttons">
           <button type="button" className="btn btn-primary" onClick={actions.runAssessment}>
             <IconLoop /> Run recurring dues

@@ -123,7 +123,8 @@ create policy "officers read the audit trail" on public.audit_events for select 
 -- ---------------------------------------------------------------- 3. callable functions
 
 -- Members
-grant execute on function public.start_payment_attempt(uuid[]), public.abandon_payment_attempt(uuid),
+grant execute on function public.whoami(), public.ledger_clock(),
+                         public.start_payment_attempt(uuid[]), public.abandon_payment_attempt(uuid), public.my_payment_attempt(text),
                          public.report_discrepancy(text)
   to authenticated;
 

@@ -90,8 +90,9 @@ function LevyForm({ ledger }: { ledger: LedgerState }) {
     if (!errs.length) setStep('review');
   }
 
-  function publish() {
-    if (actions.publishLevy(input)) {
+  async function publish() {
+    // Demo returns the levy; the connected system returns a promise of success.
+    if (await actions.publishLevy(input)) {
       setName('');
       setAmount('');
       setDueDate('');

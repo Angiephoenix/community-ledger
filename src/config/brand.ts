@@ -17,6 +17,7 @@ export const brand = {
     surface: '#FFFFFF',
   },
   demoNotice: 'Demo · Fictional records · No real payments',
+  testNotice: 'Test system · Fictional records · Test payments only',
 } as const;
 
 export type Brand = typeof brand;

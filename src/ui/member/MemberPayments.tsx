@@ -1,5 +1,6 @@
 import { formatNaira } from '../../domain/money';
 import { formatDateTime } from '../../domain/time';
+import { modeLabels } from '../../config/mode';
 import { attemptChargesSettled } from '../../domain/ledger';
 import type { LedgerState, PaymentAttempt } from '../../domain/types';
 import { EmptyState } from '../common/bits';
@@ -76,7 +77,7 @@ export function MemberPayments({
                   <span className="row-main">
                     <strong>Payment received</strong>
                     <span className="muted">
-                      {formatDateTime(p.confirmedAt)} · {p.source === 'opening-record' ? 'Opening record' : 'Simulated'}
+                      {formatDateTime(p.confirmedAt)} · {p.source === 'opening-record' ? 'Opening record' : modeLabels.paymentKind}
                     </span>
                   </span>
                   <span className="row-amount">{formatNaira(p.amountKobo)}</span>

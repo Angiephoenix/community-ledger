@@ -98,7 +98,8 @@ export interface Payment {
   amountKobo: Kobo;
   currency: 'NGN';
   confirmedAt: Instant;
-  source: 'simulator' | 'opening-record';
+  /** 'provider' is a payment-provider test transaction in the connected test system. */
+  source: 'simulator' | 'provider' | 'opening-record';
   /** Provider fees are tracked separately from dues; not known in the demo. */
   feeKobo: Kobo | null;
   /** Payment confirmation is not bank settlement; settlement is not tracked yet. */
@@ -170,7 +171,9 @@ export type TaskType =
   | 'held-event'
   | 'unresolved-payment'
   | 'invalid-rule'
-  | 'discrepancy';
+  | 'discrepancy'
+  /** Connected system: a provider event failed processing repeatedly. */
+  | 'event-failed';
 
 /** An item for officers in Needs attention. */
 export interface Task {

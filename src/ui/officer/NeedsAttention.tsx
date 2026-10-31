@@ -12,6 +12,7 @@ const typeLabel: Record<Task['type'], string> = {
   'unresolved-payment': 'Unconfirmed payment',
   'invalid-rule': 'Dues rule',
   discrepancy: 'Member report',
+  'event-failed': 'Payment event',
 };
 
 const decisionNote: Partial<Record<Task['type'], string>> = {

@@ -5,3 +5,9 @@ dist
 # Reference/setup pack material stays outside this repository
 *.zip
 screenshots-tmp
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+supabase/.temp
+supabase/.branches

@@ -3,6 +3,7 @@ import { formatNaira, sumKobo } from '../../domain/money';
 import { formatDay, lagosHour } from '../../domain/time';
 import { attemptChargesSettled, memberName, memberSummary, type ChargeView } from '../../domain/ledger';
 import type { LedgerState, PaymentAttempt } from '../../domain/types';
+import { appMode, modeLabels } from '../../config/mode';
 import { actions } from '../../state/store';
 import { EmptyState, StatusChip } from '../common/bits';
 import { Sculpture } from '../common/Artwork';
@@ -49,8 +50,17 @@ export function MemberOverview({
   const name = memberName(ledger, memberId);
   const lastReceipt = [...ledger.receipts].reverse().find((r) => r.memberId === memberId);
 
-  function pay() {
-    const a = actions.startPayment(selected.map((c) => c.charge.id));
+  const [redirecting, setRedirecting] = useState(false);
+  async function pay() {
+    const ids = selected.map((c) => c.charge.id);
+    if (appMode === 'connected') {
+      // Hosted checkout: the server creates the attempt and the provider's page takes payment.
+      setRedirecting(true);
+      await actions.payWithCheckout(ids);
+      setRedirecting(false);
+      return;
+    }
+    const a = actions.startPayment(ids);
     if (a) setAttempt(a);
   }
 
@@ -178,11 +188,11 @@ export function MemberOverview({
 
           {unpaid.length > 0 && (
             <div className="pay-bar">
-              <button type="button" className="btn btn-primary btn-pay" disabled={selected.length === 0} onClick={pay}>
-                {selected.length === 0 ? 'Choose dues to pay' : `Pay ${formatNaira(selectedTotal)}`}
-                {selected.length > 0 && <IconArrow />}
+              <button type="button" className="btn btn-primary btn-pay" disabled={selected.length === 0 || redirecting} onClick={pay}>
+                {redirecting ? 'Opening secure checkout…' : selected.length === 0 ? 'Choose dues to pay' : `Pay ${formatNaira(selectedTotal)}`}
+                {selected.length > 0 && !redirecting && <IconArrow />}
               </button>
-              <span className="fine">Demo · No real payments</span>
+              <span className="fine">{modeLabels.payFootnote}</span>
             </div>
           )}
 

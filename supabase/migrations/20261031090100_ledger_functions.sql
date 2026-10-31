@@ -651,6 +651,27 @@ begin
                             'amount_kobo', v_attempt.amount_kobo, 'currency', v_attempt.currency, 'provider', v_attempt.provider);
 end $$;
 
+-- Who is signed in: their member record (if linked) and officer status.
+create function public.whoami() returns jsonb
+language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object(
+    'member_id', app.current_member_id(),
+    'display_name', (select m.display_name from public.members m where m.id = app.current_member_id()),
+    'is_officer', app.is_officer())
+$$;
+
+-- The ledger's business clock (the test clock while one is set).
+create function public.ledger_clock() returns timestamptz
+language sql stable set search_path = '' as $$
+  select app.now()
+$$;
+
+-- Member: their own attempt by reference (row-level security applies).
+create function public.my_payment_attempt(p_reference text) returns jsonb
+language sql stable set search_path = '' as $$
+  select to_jsonb(o) from public.payment_attempt_overview o where o.reference = p_reference
+$$;
+
 -- Member: checkout closed before anything was submitted. Pending payments stay pending.
 create function public.abandon_payment_attempt(p_attempt_id uuid) returns text
 language plpgsql security definer set search_path = '' as $$

@@ -1,8 +1,13 @@
 # Community Ledger
 
-A dues portal for a community group in Nigeria. This is **milestone 1: a local interactive demo**. Every record is fictional. Payments are simulated and messages are previews only.
+A dues portal for a community group in Nigeria. Every record is fictional. Messages are previews only.
 
-> Demo · Fictional records · No real payments. Nothing in this app talks to a payment provider, a messaging service or an analytics service.
+The app builds in two separate modes:
+
+- **Demo** (default, milestone 1): a standalone interactive demo. Payments are simulated and records live in this browser. Nothing talks to a payment provider, messaging service or analytics service.
+- **Connected test system** (milestone 2, in progress): Supabase PostgreSQL holds the records, members and officers sign in, and payments go through a provider's hosted checkout in test mode. See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md) for what is tested, what is verified and what is still blocked. A connected build never falls back to demo data.
+
+> Demo · Fictional records · No real payments. / Test system · Fictional records · Test payments only.
 
 ## Run it
 
@@ -22,9 +27,12 @@ Other commands:
 
 ```bash
 npm test            # domain and analytics checks (Vitest)
+npm run test:db     # database, access-control and payment-pipeline checks (needs PostgreSQL 16 binaries)
 npm run build       # type-check and production build into dist/
 npm run preview     # serve the production build locally
 ```
+
+Connected mode: set the variables named in `.env.example` (values in a secure environment, never committed) and build with `VITE_APP_MODE=connected`. The database schema is in `supabase/migrations`, fictional seed data in `supabase/seed.sql`, server code in `supabase/functions`. A short guide to the schema, SQL and PostHog funnel is in [docs/LEARNING-GUIDE.md](docs/LEARNING-GUIDE.md).
 
 `.npmrc` sets `legacy-peer-deps=true` because npm 10.9 crashed while resolving peer dependencies for this package set.
 
@@ -101,7 +109,7 @@ These are demo defaults, not the group's confirmed rules.
 - **Recurring job**: assesses the current period and the next one if it opens within 10 days. Members must be active and have joined by the period's issue date.
 - Receipts are numbered `RCT-<year>-<n>`.
 
-## Implemented, simulated, missing
+## Implemented, simulated, missing (demo mode)
 
 **Implemented (working in the browser):** member Overview / Payments / Statement; officer Overview / Members / Dues / Needs attention / Reports; recurring assessment with duplicate prevention; levy creation targeting selected members; payment attempts; confirmation processing with allocation, receipts, duplicate rejection, held events and overpayment credit; reminder job with duplicate prevention, cancellation on payment, bounded pause and recheck before delivery; collection report with consistency checks; printable statement, report and receipt (via the browser's print dialog); audit trail; local analytics adapter with allowlist and inspector; demo clock, reset and view switch; versioned local persistence; empty, pending, failed, all-paid and partial states; phone and desktop layouts.
 
@@ -109,6 +117,6 @@ These are demo defaults, not the group's confirmed rules.
 
 **Missing (later milestones):** authentication and permissions; Supabase/PostgreSQL; Paystack or any real provider, including signature verification; WhatsApp/email delivery and delivery-failure retries; PostHog; adding or editing members; refunds or carrying credit forward (needs a group rule); waivers/corrections UI (the `Adjustment` record exists and balances honour it, but there is no screen); bank settlement and fee tracking; a dedicated PDF download.
 
-## Next step (milestone 2)
+## Milestone 2 status
 
-Move the records into Supabase PostgreSQL with unique constraints matching the keys used here (`charges.key`, `payments.provider_ref`, `notification_outbox.key`), add Supabase Auth and row-level policies, and replace the simulator with a server-side Paystack test-mode integration that verifies signatures and re-checks transactions before calling the same processing logic.
+See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md). In short: the database, access control and payment pipeline are built and tested locally against PostgreSQL 16 with a fake provider. The Paystack adapter is not written yet because Paystack's current documentation could not be read from the build environment, and nothing has been run against a real Supabase, Paystack or PostHog project.

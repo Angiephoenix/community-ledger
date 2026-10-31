@@ -6,7 +6,7 @@ import type { LedgerState } from '../../domain/types';
 import { brand } from '../../config/brand';
 import { IconAlert, IconCheckCircle, IconPrint } from '../common/Icons';
 
-export function Reports({ ledger }: { ledger: LedgerState }) {
+export function Reports({ ledger, serverChecks }: { ledger: LedgerState; serverChecks?: { label: string; ok: boolean }[] }) {
   const rep = collectionReport(ledger);
   return (
     <div className="page">
@@ -113,6 +113,18 @@ export function Reports({ ledger }: { ledger: LedgerState }) {
             </li>
           ))}
         </ul>
+        {serverChecks && (
+          <>
+            <h3>Database checks</h3>
+            <ul className="checks">
+              {serverChecks.map((c) => (
+                <li key={c.label} className={c.ok ? 'ok' : 'bad'}>
+                  {c.ok ? <IconCheckCircle size={18} /> : <IconAlert size={18} />} {c.ok ? 'Agrees' : 'Does not agree'}: {c.label}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         <p className="fine">
           {rep.pendingAttempts} unconfirmed payment attempt{rep.pendingAttempts === 1 ? '' : 's'} ({formatNaira(rep.pendingAttemptsKobo)})
           are not counted as received. Bank settlement and provider fees are not tracked in this demo, so this report is not a bank

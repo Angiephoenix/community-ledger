@@ -4,6 +4,7 @@ import { formatDateTime } from '../../domain/time';
 import { memberName, memberSummary } from '../../domain/ledger';
 import type { LedgerState } from '../../domain/types';
 import { brand } from '../../config/brand';
+import { modeLabels } from '../../config/mode';
 import { track } from '../../state/store';
 import { IconPrint } from './Icons';
 import { Logo } from './Artwork';
@@ -26,7 +27,7 @@ export function ReceiptView({ ledger, receiptId, surface }: { ledger: LedgerStat
           <Logo />
           <span>{brand.name}</span>
         </div>
-        <span className="sim-label">Simulated payment · Demo</span>
+        <span className="sim-label">{modeLabels.receiptBadge}</span>
       </div>
       <p className="receipt-kicker">Receipt {receipt.number}</p>
       <p className="receipt-amount">{formatNaira(receipt.amountKobo)}</p>
@@ -45,7 +46,7 @@ export function ReceiptView({ ledger, receiptId, surface }: { ledger: LedgerStat
         </div>
         <div>
           <dt>Method</dt>
-          <dd>{payment.source === 'opening-record' ? 'Opening record (fictional)' : 'Payment simulator'}</dd>
+          <dd>{payment.source === 'opening-record' ? 'Opening record (fictional)' : modeLabels.method}</dd>
         </div>
       </dl>
       <h3 className="receipt-sub">What this paid</h3>
@@ -69,7 +70,7 @@ export function ReceiptView({ ledger, receiptId, surface }: { ledger: LedgerStat
       </div>
       <p className="fine">
         This receipt confirms the payment was recorded in {brand.name}. It does not confirm the money has reached the group's bank
-        account. In this demo no real money moved.
+        account. {modeLabels.receiptMoney}
       </p>
       <button type="button" className="btn btn-ghost no-print" onClick={() => window.print()}>
         <IconPrint /> Print receipt

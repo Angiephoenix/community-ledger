@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { brand } from '../config/brand';
+import { modeLabels } from '../config/mode';
+import { ConnectedGate, ReturnNotice } from './connected/ConnectedGate';
 import { formatDateTime } from '../domain/time';
 import { memberName } from '../domain/ledger';
 import { openTasks } from '../domain/reports';
@@ -39,7 +41,7 @@ function pageFromHash(): string {
 }
 
 export function App() {
-  const { ledger, view, toasts, restoredNotice } = useApp();
+  const { ledger, view, toasts, restoredNotice, mode, connection } = useApp();
   const [page, setPage] = useState(pageFromHash);
   const [drawer, setDrawer] = useState(false);
   const [receiptId, setReceiptId] = useState<string | null>(null);
@@ -59,11 +61,13 @@ export function App() {
   };
 
   useEffect(() => {
-    document.title = `${nav.find((n) => n.id === current)?.label} · ${brand.name} · Demo`;
+    document.title = `${nav.find((n) => n.id === current)?.label} · ${brand.name} · ${mode === 'connected' ? 'Test system' : 'Demo'}`;
   }, [current, nav]);
 
   const attention = openTasks(ledger).length;
   const who = view.role === 'officer' ? 'Officer' : memberName(ledger, view.memberId);
+
+  if (mode === 'connected' && connection.status !== 'ready') return <ConnectedGate connection={connection} />;
 
   let content;
   if (view.role === 'member') {
@@ -74,7 +78,7 @@ export function App() {
     if (current === 'members') content = <Members ledger={ledger} onViewReceipt={setReceiptId} />;
     else if (current === 'dues') content = <Dues ledger={ledger} />;
     else if (current === 'attention') content = <NeedsAttention ledger={ledger} />;
-    else if (current === 'reports') content = <Reports ledger={ledger} />;
+    else if (current === 'reports') content = <Reports ledger={ledger} serverChecks={mode === 'connected' ? connection.serverChecks : undefined} />;
     else content = <OfficerOverview ledger={ledger} onGo={go} />;
   }
 
@@ -85,13 +89,21 @@ export function App() {
       </a>
       <div className="demo-bar no-print" role="note">
         <span className="demo-bar-text">
-          <strong>{brand.demoNotice}</strong>
-          <span className="demo-bar-clock">Demo clock {formatDateTime(ledger.now)}</span>
+          <strong>{modeLabels.notice}</strong>
+          <span className="demo-bar-clock">
+            {mode === 'connected' ? 'Test clock' : 'Demo clock'} {formatDateTime(ledger.now)}
+          </span>
         </span>
-        <button type="button" className="demo-bar-btn" aria-label="Demo controls" onClick={() => setDrawer(true)}>
-          <IconSliders size={18} /> <span className="demo-bar-btn-label">Demo controls</span>
-          <span className="demo-bar-btn-short">Controls</span>
-        </button>
+        {mode === 'demo' ? (
+          <button type="button" className="demo-bar-btn" aria-label="Demo controls" onClick={() => setDrawer(true)}>
+            <IconSliders size={18} /> <span className="demo-bar-btn-label">Demo controls</span>
+            <span className="demo-bar-btn-short">Controls</span>
+          </button>
+        ) : (
+          <button type="button" className="demo-bar-btn signout-btn" onClick={() => void actions.signOut()}>
+            Sign out
+          </button>
+        )}
       </div>
 
       <header className="topbar no-print">
@@ -117,10 +129,17 @@ export function App() {
               </a>
             ))}
           </nav>
-          <button type="button" className="who" onClick={() => setDrawer(true)} aria-label={`Viewing as ${who}. Open demo controls to switch.`}>
-            <span className="who-tag">{view.role === 'officer' ? 'Officer view' : 'Member view'}</span>
-            <span className="avatar">{view.role === 'officer' ? 'O' : who.slice(-1)}</span>
-          </button>
+          {mode === 'demo' ? (
+            <button type="button" className="who" onClick={() => setDrawer(true)} aria-label={`Viewing as ${who}. Open demo controls to switch.`}>
+              <span className="who-tag">{view.role === 'officer' ? 'Officer view' : 'Member view'}</span>
+              <span className="avatar">{view.role === 'officer' ? 'O' : who.slice(-1)}</span>
+            </button>
+          ) : (
+            <span className="who" aria-label={`Signed in as ${who}`} role="img">
+              <span className="who-tag">{view.role === 'officer' ? 'Officer' : 'Member'}</span>
+              <span className="avatar">{view.role === 'officer' ? 'O' : who.slice(-1)}</span>
+            </span>
+          )}
         </div>
       </header>
 
@@ -133,6 +152,13 @@ export function App() {
         </p>
       )}
 
+      {mode === 'connected' && <ReturnNotice status={connection.returnStatus} />}
+      {mode === 'connected' && (connection.mismatches?.length ?? 0) > 0 && (
+        <p className="notice notice-warn page-notice" role="alert">
+          The figures shown for {connection.mismatches!.join(', ')} don’t match the database’s own totals. Please don’t rely on them and report this.
+        </p>
+      )}
+
       <main id="main" tabIndex={-1}>
         {content}
       </main>
@@ -141,14 +167,14 @@ export function App() {
         <p>
           {brand.name} · {brand.groupName} · {brand.contactLabel}
         </p>
-        <p>{brand.demoNotice}. Messages are previews only. Times are West Africa Time (Lagos).</p>
+        <p>{modeLabels.notice}. Messages are previews only. Times are West Africa Time (Lagos).</p>
       </footer>
 
       <Modal open={receiptId !== null} onClose={() => setReceiptId(null)} title="Receipt" className="receipt-modal">
         {receiptId && <ReceiptView ledger={ledger} receiptId={receiptId} surface={view.role} />}
       </Modal>
 
-      <DemoDrawer ledger={ledger} view={view} open={drawer} onClose={() => setDrawer(false)} />
+      {mode === 'demo' && <DemoDrawer ledger={ledger} view={view} open={drawer} onClose={() => setDrawer(false)} />}
 
       <Toasts toasts={toasts} />
     </>
