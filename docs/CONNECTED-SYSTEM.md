@@ -4,8 +4,9 @@ Status as of 1 November 2026 (updated after the network change). Everything here
 fictional records, test keys and preview-only messages. No live keys, real
 members, messages or public deployment.
 
-**Milestone 2 is not complete.** It completes only when the connected sign-in,
-payment and analytics journeys have been verified against real test projects.
+**Milestone 2 is not complete.** It completes only when every item in
+section 6 has been verified against real test projects. The analytics verdict
+is one of those items, not a substitute for the others.
 
 ## 1. Sources used
 
@@ -21,7 +22,8 @@ payment and analytics journeys have been verified against real test projects.
 | `@supabase/functions-js` 2.118.0 on jsr.io (official) | Yes | `EdgeRuntime.waitUntil` for background work after responding |
 | `@paystack/paystack-sdk` 1.2.2 (official npm package) | Yes | Test secret keys look like `sk_test_…`; the adapter refuses any other key |
 | posthog.com documentation | Yes | Capture API, event deduplication, funnels, person-less events, query API |
-| PostHog ingestion and app hosts (`eu.i.posthog.com`, `us.i.posthog.com`, `eu.posthog.com`, `us.posthog.com`) | **No.** Allowing `posthog.com` did not cover these subdomains | Needed to send and read back events from here |
+| PostHog ingestion and app hosts (`eu.i.posthog.com`, `us.i.posthog.com`, `eu.posthog.com`, `us.posthog.com`) | Yes, since 1 November (connections succeed; nothing sent yet) | Sending and reading back test events once a test project exists |
+| Supabase Management API (`api.supabase.com`) | **No** | Needed by the CLI for `link`, `db push`, `secrets set` and `functions deploy` from this environment |
 
 Not found in any source I could read: the complete list of Paystack verify `status` values and Paystack's webhook IP addresses. The adapter credits only `status = "success"`; every other value leaves balances untouched. Authenticity rests on the signature, not on IP addresses.
 
@@ -256,19 +258,51 @@ paystack.com pages answer with a bot challenge.)
 node scripts/verify-posthog.mjs 24
 ```
 
-It prints **Analytics VERIFIED** (exit 0) only when all five test events
-arrived (`payment started`, `payment confirmed`, `statement viewed`,
-`receipt viewed`, `discrepancy reported`), at least one member's
-`payment started` was followed by `payment confirmed` within 24 hours, and no
-event carried anything outside the allowlist. Zero events, a missing event or
-no completed funnel is **incomplete** (exit 3). A leak or a non-opaque id is
-**failed** (exit 2). A query error exits 1. So the analytics journey must
-include viewing a statement, opening a receipt and reporting a (fictional)
-problem, as well as paying.
+It reads back what the PostHog **test** project stored and gives one verdict
+for the analytics checks:
 
-## 6. External verification still required
+| Verdict | Exit | When |
+| --- | --- | --- |
+| verified | 0 | All five test events arrived (`payment started`, `payment confirmed`, `statement viewed`, `receipt viewed`, `discrepancy reported`); at least one member's `payment started` was followed by `payment confirmed` within 24 hours; nothing sensitive was stored; every PostHog-added property has been reviewed |
+| failed | 2 | Any sensitive property, whatever its prefix (`$ip`, `$geoip_*`, `$email`, `$current_url`, `$pathname`, `$referrer`, user agent, names, phone numbers, references, amounts and similar), any other unexpected non-`$` property, a sensitive value (email address, IP address, `CL-` reference, member name) under any property, or a `distinct_id` that is not an opaque `an_…` id |
+| needs-review | 4 | PostHog added a property that is not sensitive but has not been reviewed |
+| incomplete | 3 | No events, a required event missing, or no completed funnel |
+| error | 1 | The query failed, returned no rows object, or the review file was rejected |
 
-- **Sign-in:** each fictional member sees only their own dues; the officer sees all; an unlinked account sees the "not linked" screen.
-- **Payment:** a Paystack test checkout for Member A's annual dues confirms through the webhook. Balance, receipt and reminder cancellation are correct. A repeated webhook changes nothing. A test failure and an abandoned checkout credit nothing.
-- **Analytics:** `scripts/verify-posthog.mjs` reports VERIFIED for the test project: all five events present, a completed payment-started → payment-confirmed funnel, only allowlisted properties. `payment confirmed` appears once per payment despite repeated webhooks.
-- **Gateway:** `create-checkout` without a JWT is refused by the platform. `payment-webhook` and `process-payments` reach their handlers without a JWT and still enforce their own checks.
+**Reviewing a PostHog-added property.** Look at what it contains in the test
+project. If it carries nothing about a person, add an entry to
+`scripts/posthog-reviewed-properties.json` and commit it:
+
+```json
+[{ "name": "$lib", "reason": "Library name added by PostHog; no personal data", "reviewedBy": "Angie Obiesie", "reviewedOn": "2026-11-01" }]
+```
+
+Sensitive properties cannot be accepted this way; the script rejects such a
+file. If PostHog stores one (for example `$ip` or `$geoip_*`), change the
+PostHog project's IP-capture setting and test again rather than accepting it.
+
+The analytics journey must therefore include viewing a statement, opening a
+receipt and reporting a (fictional) problem, as well as paying.
+
+A **verified** result covers the analytics checks only. It does not complete
+milestone 2; see section 6.
+
+## 6. Milestone 2 completion criteria
+
+Milestone 2 is complete only when **every** item below has been verified
+against the real test projects and the evidence recorded. Local tests,
+simulated provider responses and the analytics verdict on their own are not
+enough.
+
+| # | Check | Evidence |
+| --- | --- | --- |
+| 1 | **Sign-in:** each fictional member signs in and sees only their own dues; the officer sees all members; an unlinked account sees the "not linked" screen | Screens or responses per account |
+| 2 | **Access boundaries on the live API:** Member A cannot read Member B's rows through the Data API; anonymous requests read nothing; no client can insert payments, allocations or receipts; members cannot call officer or server functions | Recorded API requests and their refusals |
+| 3 | **Gateway:** `create-checkout` and `payment-return` refuse requests without a JWT; `payment-webhook` reaches its handler without one and rejects bad signatures; `process-payments` accepts only the `cron` key | Recorded requests and status codes |
+| 4 | **Paystack test checkout:** Member A pays annual dues on Paystack's hosted test page | Paystack test transaction reference (not a card number) |
+| 5 | **Webhook processing:** the signed `charge.success` is stored, acknowledged, verified with Paystack and posted | `app.provider_events` row and outcome |
+| 6 | **Balances:** Member A's outstanding, overdue and upcoming figures change exactly as expected; the officer report checks all agree | Before/after figures |
+| 7 | **Receipts and reminders:** one receipt for the payment; the matching unsent reminder cancelled | Receipt number; outbox row |
+| 8 | **Duplicate handling:** a resent webhook and a second verification change nothing; two distinct payments for one charge keep the excess as credit with a Needs attention task | Counts before and after |
+| 9 | **Failed and abandoned checkouts:** a declined test payment and a closed checkout credit nothing | Attempt statuses and balances |
+| 10 | **Analytics:** `node scripts/verify-posthog.mjs 24` reports verified for the test project | Script output |
