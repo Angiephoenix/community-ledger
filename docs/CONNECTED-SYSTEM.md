@@ -290,7 +290,11 @@ milestone 2; see section 6.
 ## 6. Milestone 2 completion criteria
 
 Milestone 2 is complete only when **every** item below has been verified
-against the real test projects and the evidence recorded. Local tests,
+against the real test projects and the evidence recorded. Progress and
+evidence are kept in [TEST-PROJECT-LOG.md](TEST-PROJECT-LOG.md). As of
+1 November: migrations, seed, auth settings and the four functions are in
+place on `community-ledger-test`; check 3 is partly verified; checks 1, 2 and
+4 to 10 are not yet done. Local tests,
 simulated provider responses and the analytics verdict on their own are not
 enough.
 
