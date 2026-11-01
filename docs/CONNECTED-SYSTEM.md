@@ -1,6 +1,6 @@
 # Connected test system (milestone 2)
 
-Status as of 1 November 2026. Everything here is for a **test** environment with
+Status as of 1 November 2026 (updated after the network change). Everything here is for a **test** environment with
 fictional records, test keys and preview-only messages. No live keys, real
 members, messages or public deployment.
 
@@ -11,15 +11,19 @@ payment and analytics journeys have been verified against real test projects.
 
 | Source | Reachable from the build environment? | Used for |
 | --- | --- | --- |
-| paystack.com documentation | **No** (host not allowed) | Needed before writing the Paystack adapter |
-| api.paystack.co | **No** | Needed for any test-mode call |
-| supabase.com documentation | **No** (host not allowed) | Could not be read |
+| paystack.com documentation | **No.** Allowed by the network since 1 November, but every page answers HTTP 403 with a Cloudflare bot challenge (`cf-mitigated: challenge`). Not circumvented | Replaced by the first-party sources below |
+| Paystack OpenAPI specification (`PaystackOSS/openapi`, `dist/paystack.yaml`, via raw.githubusercontent.com) | Yes | Base URL, bearer auth, initialise request and response (`amount` in the smallest unit, allowed `reference` characters), verify response fields (`id`, `domain`, `status`, `reference`, `amount`, `currency`, `paid_at`), 404 for unknown references |
+| Paystack CLI (`@paystack-oss/dev-cli`, published by infrastructure@paystack.com), read as text | Yes | Webhook signature: `x-paystack-signature` is the hex HMAC-SHA512 of the request body keyed with the secret key; `charge.success` sample payload; `test` and `live` domains |
+| api.paystack.co | Yes | Reached without a key: `401 {"code":"invalid_Key"}` as expected. No test-mode call yet (needs a test key) |
+| supabase.com documentation | Yes, read 1 November | Function configuration, function auth, secrets, scheduling, background tasks (section 5 updated to match) |
 | Supabase CLI 2.122.0 (official npm package `supabase`) | Yes | `config.toml` template and validation, every command in section 5 (checked with `--help`) |
 | `@supabase/server` 1.9.2 (official npm package, docs included) | Yes | Function authentication model, `verify_jwt` guidance, platform environment variables |
 | `@supabase/functions-js` 2.118.0 on jsr.io (official) | Yes | `EdgeRuntime.waitUntil` for background work after responding |
-| `@paystack/paystack-sdk` 1.2.2 (official npm package) | Yes | Confirms only the API base URL, Bearer secret-key auth, and the initialise and verify endpoints. It does not describe webhook signatures or the verify response, so it is not enough to write the adapter |
+| `@paystack/paystack-sdk` 1.2.2 (official npm package) | Yes | Test secret keys look like `sk_test_…`; the adapter refuses any other key |
 | posthog.com documentation | Yes | Capture API, event deduplication, funnels, person-less events, query API |
-| PostHog ingestion hosts (`eu.i.posthog.com`, `us.i.posthog.com`) | **No** | Needed to verify received events from here |
+| PostHog ingestion and app hosts (`eu.i.posthog.com`, `us.i.posthog.com`, `eu.posthog.com`, `us.posthog.com`) | **No.** Allowing `posthog.com` did not cover these subdomains | Needed to send and read back events from here |
+
+Not found in any source I could read: the complete list of Paystack verify `status` values and Paystack's webhook IP addresses. The adapter credits only `status = "success"`; every other value leaves balances untouched. Authenticity rests on the signature, not on IP addresses.
 
 ## 2. Status
 
@@ -27,11 +31,11 @@ payment and analytics journeys have been verified against real test projects.
 | --- | --- | --- | --- |
 | Migrations and seed | Applied to a fresh PostgreSQL 16 on every test run | No | A Supabase test project (which runs Postgres 17) |
 | Access control (grants, RLS, functions, views) | Yes, with a shim for Supabase's roles, `auth.uid()` and default grants | No | Supabase project |
-| Payment pipeline (attempts, inbox, processing, posting, retries, reconciliation, mismatch holds) | Yes, real database plus a **fake** provider | No | Paystack adapter |
+| Payment pipeline (attempts, inbox, processing, posting, retries, reconciliation, mismatch holds) | Yes, real database plus a fake provider, and the real Paystack adapter against **simulated** Paystack HTTP | No | Paystack test key |
 | Edge Function HTTP handlers | Yes: run under Deno 2.9.6 with the real `@supabase/server` auth gate and test-only keys | No | Supabase project |
 | Supabase gateway (`verify_jwt` per function) | `config.toml` validated by the official CLI; gateway itself not run (needs Docker or a project) | No | Supabase project |
-| Paystack test mode | Not implemented | No | paystack.com docs, then a test secret key |
-| PostHog | Exact outbound payloads and the read-back checker tested with fakes | No | PostHog test project, and ingestion hosts allowed here |
+| Paystack test mode | Adapter implemented from Paystack's OpenAPI spec and CLI; request building, response checks, signatures and the ledger pipeline tested with simulated HTTP | Only reachability (401 without a key) | A Paystack **test** secret key |
+| PostHog | Exact outbound payloads tested; `verify-posthog.mjs` verdicts tested end to end against a local stand-in | No | PostHog test project, and its ingestion and app hosts allowed here |
 | Sign-in screens | Sign-in, unreachable and unconfigured states in a browser | No | Supabase project and test accounts |
 
 Fake-provider and fake-network tests prove our own logic. They are not evidence
@@ -75,9 +79,13 @@ Scheduler ─► process-payments         [platform JWT check OFF; auth: 'secret
 | `process-payments` | `false` | `auth: 'secret:cron'` | Only a request carrying the project secret key named `cron` in the `apikey` header |
 
 `verify_jwt = false` is set only where the function authenticates another way
-and checks that credential itself. That follows `@supabase/server`'s guidance:
-the platform requires a valid JWT by default, and functions using a secret key
-or no Supabase credential must turn that check off. Tested under Deno: the
+and checks that credential itself. This matches Supabase's "Securing Edge
+Functions" and "Function configuration" guides (read 1 November): keep
+`verify_jwt` on for user-facing functions; for cron or worker calls with a
+secret key on `apikey`, turn it off and use `auth: 'secret:<name>'` (named keys
+are created under Settings > API keys); for external webhooks, use
+`auth: 'none'`, verify the provider's signature in the handler and keep
+`verify_jwt = false`. Tested under Deno: the
 worker answers 200 to `apikey: <cron key>` alone, and 401 to no key, a wrong
 key, the default secret key and a member JWT. A signed webhook with no Supabase
 credential reaches its handler.
@@ -177,10 +185,10 @@ npx supabase config diff
 npx supabase config push
 ```
 
-4. Put the Edge Function secrets in a git-ignored file such as `supabase/.env.functions` (names from section 4), then:
+4. Put the Edge Function secrets in `supabase/functions/.env` (git-ignored; the same file the local stack reads). Names come from section 4 and may not start with `SUPABASE_`. Then:
 
 ```bash
-npx supabase secrets set --env-file supabase/.env.functions
+npx supabase secrets set --env-file supabase/functions/.env
 ```
 
 5. Deploy. The member functions keep the platform JWT check; the webhook and worker turn it off (also declared in `config.toml`):
@@ -205,18 +213,28 @@ node scripts/create-test-users.mjs
 curl -sS -X POST "https://<project-ref>.supabase.co/functions/v1/process-payments" -H "apikey: $SUPABASE_CRON_KEY"
 ```
 
-8. Schedule the worker every minute. This SQL uses `pg_cron`, `pg_net` and Vault. It is written from prior knowledge and **has not been checked against current Supabase docs**, so check it before running it in the SQL editor:
+8. Schedule the worker every minute, following Supabase's "Scheduling Edge Functions" guide (`pg_cron` + `pg_net` + Vault). Run it in the SQL editor of the **test** project, pasting the `cron` secret key there yourself, never in chat:
 
 ```sql
--- once: store the cron key in Vault (paste it in the SQL editor yourself, never in chat)
-select vault.create_secret('<cron secret key>', 'process_payments_cron_key');
-select cron.schedule('process-payments', '* * * * *', $$
+select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
+select vault.create_secret('<the secret key named cron>', 'cron_secret_key');
+select cron.schedule(
+  'process-payments-every-minute',
+  '* * * * *',
+  $$
   select net.http_post(
-    url := 'https://<project-ref>.supabase.co/functions/v1/process-payments',
-    headers := jsonb_build_object('apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'process_payments_cron_key'))
-  );
-$$);
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/process-payments',
+    headers := jsonb_build_object(
+      'Content-type', 'application/json',
+      'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret_key')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
 ```
+
+Supabase's guide notes that any database role that can log in can read the key in `net.http_request_queue` while a request waits. That is another reason to use a dedicated `cron` key that can be rotated on its own.
 
 9. Build the app against the test project (values in a git-ignored `.env.local`):
 
@@ -224,19 +242,33 @@ $$);
 npm run build
 ```
 
-10. Paystack test dashboard: once the adapter exists, set the webhook URL to
-`https://<project-ref>.supabase.co/functions/v1/payment-webhook`. (Details to
-be confirmed from Paystack's docs.)
+10. In the Paystack dashboard, in **test mode**, set the webhook URL to
+`https://<project-ref>.supabase.co/functions/v1/payment-webhook`. The adapter
+verifies `x-paystack-signature` with the test secret key, stores the event,
+answers 200, and credits only after `GET /transaction/verify/{reference}`
+confirms `status = success`, `domain = test`, the expected reference, amount
+and NGN. (Where this setting sits in the dashboard could not be checked: the
+paystack.com pages answer with a bot challenge.)
 
-11. Check PostHog received the events and the funnel:
+11. Check what PostHog received:
 
 ```bash
 node scripts/verify-posthog.mjs 24
 ```
 
+It prints **Analytics VERIFIED** (exit 0) only when all five test events
+arrived (`payment started`, `payment confirmed`, `statement viewed`,
+`receipt viewed`, `discrepancy reported`), at least one member's
+`payment started` was followed by `payment confirmed` within 24 hours, and no
+event carried anything outside the allowlist. Zero events, a missing event or
+no completed funnel is **incomplete** (exit 3). A leak or a non-opaque id is
+**failed** (exit 2). A query error exits 1. So the analytics journey must
+include viewing a statement, opening a receipt and reporting a (fictional)
+problem, as well as paying.
+
 ## 6. External verification still required
 
 - **Sign-in:** each fictional member sees only their own dues; the officer sees all; an unlinked account sees the "not linked" screen.
 - **Payment:** a Paystack test checkout for Member A's annual dues confirms through the webhook. Balance, receipt and reminder cancellation are correct. A repeated webhook changes nothing. A test failure and an abandoned checkout credit nothing.
-- **Analytics:** `payment started` and `payment confirmed` arrive once each in the PostHog test project with only allowlisted properties, and the funnel shows the conversion.
+- **Analytics:** `scripts/verify-posthog.mjs` reports VERIFIED for the test project: all five events present, a completed payment-started → payment-confirmed funnel, only allowlisted properties. `payment confirmed` appears once per payment despite repeated webhooks.
 - **Gateway:** `create-checkout` without a JWT is refused by the platform. `payment-webhook` and `process-payments` reach their handlers without a JWT and still enforce their own checks.

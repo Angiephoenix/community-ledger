@@ -164,3 +164,52 @@ describe('return verification about a different reference', () => {
     expect(tasks[0].detail).toContain('a member returning from checkout');
   });
 });
+
+describe('Paystack adapter through the ledger pipeline (simulated Paystack HTTP)', () => {
+  const KEY = 'sk_test_fictional_pipeline_000000000000';
+  async function run(domain: 'test' | 'live') {
+    await db.pool.query(`update app.settings set payment_provider = 'paystack'`);
+    const { createHmac } = await import('node:crypto');
+    const sessions = new Map<string, number>();
+    const simulated = (async (url: string, init: RequestInit) => {
+      const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (url.endsWith('/transaction/initialize')) {
+        const b = JSON.parse(String(init.body));
+        sessions.set(b.reference, b.amount);
+        return ok({ status: true, message: 'Authorization URL created', data: { authorization_url: `https://checkout.paystack.com/${b.reference}`, access_code: 'x', reference: b.reference } });
+      }
+      const ref = decodeURIComponent(url.split('/').pop()!);
+      return ok({ status: true, message: 'Verification successful', data: { id: 99001, domain, status: 'success', reference: ref, amount: sessions.get(ref), currency: 'NGN', paid_at: new Date().toISOString() } });
+    }) as unknown as typeof fetch;
+    const paystack = createPaystackProvider({ secretKey: KEY, fetch: simulated });
+    const co = await createCheckout({ memberRpc: pgRpc(db, member(db, 'A')), serviceRpc: pgRpc(db, service), provider: paystack,
+      email: 'member-a@example.test', chargeIds: [await annualA()], callbackUrl: 'http://localhost:5173/?payment=return' });
+    if (!co.ok) throw new Error('checkout failed');
+    expect(co.authorizationUrl).toBe(`https://checkout.paystack.com/${co.reference}`);
+    const rawBody = JSON.stringify({ event: 'charge.success', data: { id: 99001, domain, status: 'success', reference: co.reference, amount: 1_500_000, currency: 'NGN' } });
+    const headers = new Headers({ 'x-paystack-signature': createHmac('sha512', KEY).update(rawBody).digest('hex') });
+    const hook = await receiveWebhook({ rawBody, headers, provider: paystack, serviceRpc: pgRpc(db, service) });
+    expect(hook.status).toBe(200);
+    const again = await receiveWebhook({ rawBody, headers, provider: paystack, serviceRpc: pgRpc(db, service) });
+    expect(again.isNew).toBe(false);
+    return processProviderEvents({ serviceRpc: pgRpc(db, service), providers: { paystack } });
+  }
+
+  it('a signed test-domain charge.success is verified and posted once', async () => {
+    const s = await run('test');
+    expect(s.recorded).toBe(1);
+    const [p] = await db.q<{ n: string }>(owner, `select count(*) n from public.payments where provider = 'paystack' and provider_ref = '99001'`);
+    expect(Number(p.n)).toBe(1);
+    const [b] = await db.q<{ outstanding_kobo: string }>(member(db, 'A'), 'select outstanding_kobo from public.member_balances');
+    expect(Number(b.outstanding_kobo)).toBe(1_500_000);
+  });
+
+  it('a live-domain answer is held, never credited', async () => {
+    const s = await run('live');
+    expect(s.held).toBe(1);
+    const [p] = await db.q<{ n: string }>(owner, `select count(*) n from public.payments where provider = 'paystack' and provider_ref = '99001'`);
+    expect(Number(p.n)).toBe(0);
+    const t = await db.q(owner, `select 1 from public.tasks where type = 'held-event' and detail like '%test environment%'`);
+    expect(t).toHaveLength(1);
+  });
+});

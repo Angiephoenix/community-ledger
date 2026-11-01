@@ -45,3 +45,23 @@ export function analyse(rows, windowHours = 24) {
   }
   return { counts, funnel: { started: starters.size, confirmed: converted }, addedByPostHog: [...addedByPostHog].sort(), problems };
 }
+
+/**
+ * Verdict for an analysis. Analytics is "verified" only when every required
+ * event arrived, at least one payment-started -> payment-confirmed funnel
+ * completed, and nothing leaked. Zero events is never verified.
+ *   failed     : forbidden data, unexpected properties or non-opaque ids
+ *   incomplete : required events missing or no completed funnel
+ *   verified   : everything present and clean
+ */
+export function verdict(report, required = EVENTS) {
+  const reasons = [];
+  if (report.problems.length) {
+    return { status: 'failed', verified: false, reasons: report.problems };
+  }
+  const total = Object.values(report.counts).reduce((a, b) => a + b, 0);
+  if (total === 0) reasons.push('No test events were received.');
+  for (const e of required) if (!report.counts[e]) reasons.push(`Missing required event: ${e}`);
+  if (report.funnel.confirmed < 1) reasons.push('No completed payment started -> payment confirmed funnel.');
+  return reasons.length ? { status: 'incomplete', verified: false, reasons } : { status: 'verified', verified: true, reasons: [] };
+}

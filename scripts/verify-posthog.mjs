@@ -2,12 +2,16 @@
 // them: counts, the payment-started -> payment-confirmed funnel, properties
 // PostHog added itself, and anything outside the allowlist.
 //
+// Analytics counts as verified only if every expected event arrived, a funnel
+// completed and nothing leaked. Exit codes: 0 verified, 2 failed, 3 incomplete
+// (including zero events), 1 the query itself failed.
+//
 // Needs POSTHOG_APP_HOST (e.g. https://eu.posthog.com), POSTHOG_PROJECT_ID and
 // POSTHOG_PERSONAL_API_KEY (with Query Read) in the environment. Never prints
 // the key.   node scripts/verify-posthog.mjs [hours]
 //
 // Not yet run: no PostHog test project was available.
-import { analyse, recentEventsQuery } from './posthog-check.mjs';
+import { analyse, recentEventsQuery, verdict } from './posthog-check.mjs';
 
 const need = (k) => {
   const v = process.env[k];
@@ -32,6 +36,12 @@ if (!res.ok) {
   process.exit(1);
 }
 const body = await res.json();
-const report = analyse(body.results ?? [], 24);
-console.log(JSON.stringify(report, null, 2));
-process.exit(report.problems.length ? 2 : 0);
+if (!Array.isArray(body.results)) {
+  console.error('PostHog query returned no result rows (the query may still be running). Analytics NOT verified.');
+  process.exit(1);
+}
+const report = analyse(body.results, 24);
+const result = verdict(report);
+console.log(JSON.stringify({ ...report, verdict: result }, null, 2));
+console.log(result.verified ? 'Analytics VERIFIED.' : `Analytics NOT verified (${result.status}): ${result.reasons.join(' ')}`);
+process.exit(result.verified ? 0 : result.status === 'failed' ? 2 : 3);

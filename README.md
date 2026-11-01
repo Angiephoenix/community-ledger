@@ -120,4 +120,4 @@ These are demo defaults, not the group's confirmed rules.
 
 ## Milestone 2 status
 
-Not complete. See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md) for exactly what is tested, what is verified and what is blocked. In short: the database, access control, payment pipeline and Edge Function handlers are built and tested locally (PostgreSQL plus Deno, with a fake payment provider). The Paystack adapter waits for Paystack's documentation to be readable from the build environment, and nothing has yet been verified against real Supabase, Paystack or PostHog test projects.
+Not complete. See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md) for exactly what is tested, what is verified and what is blocked. In short: the database, access control, payment pipeline, Edge Function handlers and the Paystack test-mode adapter are built and tested locally (PostgreSQL plus Deno, with simulated provider responses). Nothing has yet been verified against real Supabase, Paystack or PostHog test projects.
