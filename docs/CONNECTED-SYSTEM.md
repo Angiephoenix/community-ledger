@@ -215,7 +215,14 @@ node scripts/create-test-users.mjs
 curl -sS -X POST "https://<project-ref>.supabase.co/functions/v1/process-payments" -H "apikey: $SUPABASE_CRON_KEY"
 ```
 
-8. Schedule the worker every minute, following Supabase's "Scheduling Edge Functions" guide (`pg_cron` + `pg_net` + Vault). Run it in the SQL editor of the **test** project, pasting the `cron` secret key there yourself, never in chat:
+8. Schedule the worker every minute, following Supabase's "Scheduling Edge Functions" guide (`pg_cron` + `pg_net` + Vault). First enable the two extensions as the Supabase docs show (or from the dashboard):
+
+```sql
+create extension if not exists pg_cron with schema pg_catalog;
+create extension if not exists pg_net with schema extensions;
+```
+
+Then store the two Vault entries and create the schedule in the SQL editor of the **test** project, pasting the `cron` secret key there yourself, never in chat:
 
 ```sql
 select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
@@ -230,7 +237,8 @@ select cron.schedule(
       'Content-type', 'application/json',
       'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret_key')
     ),
-    body := '{}'::jsonb
+    body := '{}'::jsonb,
+    timeout_milliseconds := 10000
   ) as request_id;
   $$
 );
