@@ -10,7 +10,7 @@ import type { LedgerState } from '../domain/types';
 let client: SupabaseClient | null = null;
 export function supabase(): SupabaseClient {
   if (!client) {
-    client = createClient(connectedConfig.supabaseUrl, connectedConfig.supabaseAnonKey, {
+    client = createClient(connectedConfig.supabaseUrl, connectedConfig.supabasePublishableKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
     });
   }
@@ -94,7 +94,7 @@ async function callFunction<T>(name: string, body: unknown): Promise<T> {
   if (!token) throw new Error('Please sign in again.');
   const res = await fetch(`${connectedConfig.functionsUrl}/${name}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, apikey: connectedConfig.supabaseAnonKey },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, apikey: connectedConfig.supabasePublishableKey },
     body: JSON.stringify(body),
   });
   const json = (await res.json().catch(() => ({}))) as T;

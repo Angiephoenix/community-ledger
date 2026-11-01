@@ -421,3 +421,38 @@ describe('analytics events written by the database', () => {
     }
   });
 });
+
+describe('verification answers about a different reference', () => {
+  async function mismatchTasks() {
+    return db.q<{ key: string; member_id: string; title: string; status: string }>(owner,
+      `select key, member_id, title, status from public.tasks where key like 'mismatch:%'`);
+  }
+
+  it('webhook processing records one officer task, credits nothing, and retries add no duplicate', async () => {
+    const co = await checkout('A', [await chargeId('A', 'Annual dues')]);
+    if (!co.ok) throw new Error('checkout failed');
+    fake.settle(co.reference, { status: 'success', reference: 'CL-SOMEONEELSE', providerRef: 'FAKE-OTHER-1' });
+    const before = await counts();
+    await deliverWebhook(co.reference);
+    expect((await process()).held).toBe(1);
+    // Retries through every path: a second event, reconciliation and the same event again.
+    await deliverWebhook(co.reference, 'charge.success.retry');
+    await process();
+    await reconcileAttempts({ serviceRpc: pgRpc(db, service), providers: providers(), olderThanSeconds: 0 });
+    await db.pool.query(`update app.provider_events set status = 'received', next_attempt_at = now()`);
+    await process();
+
+    expect(await counts()).toEqual(before);
+    expect((await balances('A')).outstanding).toBe(3_000_000);
+    const tasks = await mismatchTasks();
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ member_id: MEMBER.A, status: 'open', title: 'Payment check returned a different reference' });
+    const officerView = await db.q<{ detail: string }>(officer(db), `select detail from public.tasks where key like 'mismatch:%'`);
+    expect(officerView).toHaveLength(1);
+    expect(officerView[0].detail).toContain(co.reference);
+    expect(officerView[0].detail).toContain('Nothing was credited');
+    expect(await db.q(member(db, 'A'), `select 1 from public.tasks`)).toEqual([]); // members never see tasks
+    const audits = await db.q(owner, `select 1 from public.audit_events where action = 'Payment held' and detail like $1`, [`%${co.reference}%`]);
+    expect(audits).toHaveLength(1);
+  });
+});

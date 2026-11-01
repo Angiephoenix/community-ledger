@@ -21,9 +21,18 @@ export async function applyVerifiedTransaction(
   provider: PaymentProvider,
   expectedReference: string,
   tx: VerifiedTransaction,
+  source: 'processing' | 'return' = 'processing',
 ): Promise<'recorded' | 'duplicate-ignored' | 'held' | 'status-updated'> {
   if (tx.reference !== expectedReference) {
-    // The provider answered about a different transaction. Do not credit.
+    // The provider answered about a different transaction. Do not credit;
+    // record one durable Needs attention task for the expected attempt.
+    await serviceRpc.call('server_hold_verification_mismatch', {
+      p_provider: provider.id,
+      p_expected_reference: expectedReference,
+      p_reported_reference: tx.reference,
+      p_provider_ref: tx.providerRef,
+      p_source: source,
+    });
     return 'held';
   }
   if (tx.status === 'success') {

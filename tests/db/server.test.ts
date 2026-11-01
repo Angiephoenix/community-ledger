@@ -148,3 +148,19 @@ describe('server-side analytics delivery', () => {
     expect(Number(n.n)).toBe(0);
   });
 });
+
+describe('return verification about a different reference', () => {
+  it('records the same durable task once and credits nothing', async () => {
+    const co = await paidCheckout();
+    fake.settle(co.reference, { status: 'success', reference: 'CL-NOTMINE00', providerRef: 'FAKE-OTHER-9' });
+    const args = { memberRpc: pgRpc(db, member(db, 'A')), serviceRpc: pgRpc(db, service), provider: fake, reference: co.reference };
+    expect((await checkReturnedPayment(args)).status).toBe('held');
+    expect((await checkReturnedPayment(args)).status).toBe('held');
+    const [p] = await db.q<{ n: string }>(owner, `select count(*) n from public.payments where provider = 'test-fake'`);
+    expect(Number(p.n)).toBe(0);
+    const tasks = await db.q<{ detail: string; member_id: string }>(owner, `select detail, member_id from public.tasks where key like 'mismatch:%'`);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].member_id).toBe(MEMBER.A);
+    expect(tasks[0].detail).toContain('a member returning from checkout');
+  });
+});

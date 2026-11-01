@@ -21,7 +21,7 @@ export async function checkReturnedPayment(deps: {
   if (mine.status === 'confirmed') return { status: 'confirmed' };
   try {
     const tx = await deps.provider.verifyTransaction(deps.reference);
-    const outcome = await applyVerifiedTransaction(deps.serviceRpc, deps.provider, deps.reference, tx);
+    const outcome = await applyVerifiedTransaction(deps.serviceRpc, deps.provider, deps.reference, tx, 'return');
     if (outcome === 'recorded' || outcome === 'duplicate-ignored') return { status: 'confirmed' };
     if (outcome === 'held') return { status: 'held' };
   } catch (e) {

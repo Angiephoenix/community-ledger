@@ -11,7 +11,7 @@ export const appMode: 'demo' | 'connected' = env.VITE_APP_MODE === 'connected' ?
 
 export const connectedConfig = {
   supabaseUrl: (env.VITE_SUPABASE_URL as string | undefined) ?? '',
-  supabaseAnonKey: (env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '',
+  supabasePublishableKey: (env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? '',
   functionsUrl: ((env.VITE_SUPABASE_FUNCTIONS_URL as string | undefined) ?? '') || ((env.VITE_SUPABASE_URL as string | undefined) ?? '') + '/functions/v1',
   posthogHost: (env.VITE_POSTHOG_HOST as string | undefined) ?? '',
   posthogKey: (env.VITE_POSTHOG_PROJECT_KEY as string | undefined) ?? '',
@@ -41,4 +41,4 @@ export const modeLabels =
         receiptMoney: 'In this demo no real money moved.',
       };
 
-export const connectedConfigured = Boolean(connectedConfig.supabaseUrl && connectedConfig.supabaseAnonKey);
+export const connectedConfigured = Boolean(connectedConfig.supabaseUrl && connectedConfig.supabasePublishableKey);

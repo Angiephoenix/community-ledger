@@ -1,8 +1,9 @@
 // Creates sign-in accounts for the fictional seed members and one officer in a
 // Supabase TEST project, then links them using server-only database functions.
 //
-// Reads SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TEST_USER_PASSWORD and
-// TEST_USER_EMAIL_DOMAIN from the environment. Never prints secret values.
+// Reads SUPABASE_URL, SUPABASE_SECRET_KEY (a project secret key, sb_secret_...),
+// TEST_USER_PASSWORD and TEST_USER_EMAIL_DOMAIN from the environment.
+// Never prints secret values.
 // Run only against a test project:  node scripts/create-test-users.mjs
 //
 // Not run in the build environment (no Supabase project was available).
@@ -18,7 +19,7 @@ const need = (k) => {
 };
 
 const url = need('SUPABASE_URL');
-const serviceKey = need('SUPABASE_SERVICE_ROLE_KEY');
+const serviceKey = need('SUPABASE_SECRET_KEY');
 const password = need('TEST_USER_PASSWORD');
 const domain = need('TEST_USER_EMAIL_DOMAIN');
 

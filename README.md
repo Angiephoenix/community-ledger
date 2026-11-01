@@ -28,6 +28,7 @@ Other commands:
 ```bash
 npm test            # domain and analytics checks (Vitest)
 npm run test:db     # database, access-control and payment-pipeline checks (needs PostgreSQL 16 binaries)
+npm run check:functions  # type-check the Edge Functions with Deno
 npm run build       # type-check and production build into dist/
 npm run preview     # serve the production build locally
 ```
@@ -119,4 +120,4 @@ These are demo defaults, not the group's confirmed rules.
 
 ## Milestone 2 status
 
-See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md). In short: the database, access control and payment pipeline are built and tested locally against PostgreSQL 16 with a fake provider. The Paystack adapter is not written yet because Paystack's current documentation could not be read from the build environment, and nothing has been run against a real Supabase, Paystack or PostHog project.
+Not complete. See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md) for exactly what is tested, what is verified and what is blocked. In short: the database, access control, payment pipeline and Edge Function handlers are built and tested locally (PostgreSQL plus Deno, with a fake payment provider). The Paystack adapter waits for Paystack's documentation to be readable from the build environment, and nothing has yet been verified against real Supabase, Paystack or PostHog test projects.
