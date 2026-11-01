@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { formatNaira, sumKobo } from '../../domain/money';
 import { formatDay, lagosHour } from '../../domain/time';
-import { attemptChargesSettled, memberName, memberSummary, type ChargeView } from '../../domain/ledger';
+import { attemptChargesSettled, config, memberName, memberSummary, pastPendingPause, pendingFor, type ChargeView } from '../../domain/ledger';
 import type { LedgerState, PaymentAttempt } from '../../domain/types';
 import { appMode, modeLabels } from '../../config/mode';
 import { actions } from '../../state/store';
@@ -51,12 +51,20 @@ export function MemberOverview({
   const lastReceipt = [...ledger.receipts].reverse().find((r) => r.memberId === memberId);
 
   const [redirecting, setRedirecting] = useState(false);
+  // Connected mode: the server refuses a second payment for a charge while an
+  // earlier one is being checked, and needs an explicit "pay again" once that
+  // earlier payment has gone unconfirmed past the pause. The button says so.
+  const connected = appMode === 'connected';
+  const open = pendingFor(ledger, selected.map((c) => c.charge.id));
+  const blocked = connected && open.checking.length > 0;
+  const payAgain = connected && !blocked && open.unconfirmed.length > 0;
   async function pay() {
     const ids = selected.map((c) => c.charge.id);
-    if (appMode === 'connected') {
+    if (connected) {
+      if (blocked || redirecting) return;
       // Hosted checkout: the server creates the attempt and the provider's page takes payment.
       setRedirecting(true);
-      await actions.payWithCheckout(ids);
+      await actions.payWithCheckout(ids, payAgain);
       setRedirecting(false);
       return;
     }
@@ -141,6 +149,11 @@ export function MemberOverview({
             <IconInfo /> The dues in an earlier payment of {formatNaira(a.amountKobo)} ({a.reference}) are now paid. That earlier payment is
             still unconfirmed. If it goes through, it will be kept as credit and an officer will review it.
           </p>
+        ) : connected && pastPendingPause(ledger, a) ? (
+          <p key={a.id} className="notice notice-pending" role="status">
+            <IconClock /> Your payment of {formatNaira(a.amountKobo)} ({a.reference}) has not been confirmed after {config.pendingPauseHours}{' '}
+            hours. Nothing was credited from it, so your balance still includes these dues.
+          </p>
         ) : (
           <p key={a.id} className="notice notice-pending" role="status">
             <IconClock /> We’re checking a payment of {formatNaira(a.amountKobo)} ({a.reference}). Your balance won’t change until it’s
@@ -182,16 +195,45 @@ export function MemberOverview({
 
           <ul className="charge-list">
             {unpaid.map((c) => (
-              <ChargeRow key={c.charge.id} view={c} checked={picked.has(c.charge.id)} onToggle={() => toggle(c.charge.id)} />
+              <ChargeRow
+                key={c.charge.id}
+                view={c}
+                unconfirmed={connected && pendingFor(ledger, [c.charge.id]).checking.length === 0}
+                checked={picked.has(c.charge.id)}
+                onToggle={() => toggle(c.charge.id)}
+              />
             ))}
           </ul>
 
           {unpaid.length > 0 && (
             <div className="pay-bar">
-              <button type="button" className="btn btn-primary btn-pay" disabled={selected.length === 0 || redirecting} onClick={pay}>
-                {redirecting ? 'Opening secure checkout…' : selected.length === 0 ? 'Choose dues to pay' : `Pay ${formatNaira(selectedTotal)}`}
-                {selected.length > 0 && !redirecting && <IconArrow />}
+              <button
+                type="button"
+                className="btn btn-primary btn-pay"
+                disabled={selected.length === 0 || redirecting || blocked}
+                onClick={pay}
+              >
+                {redirecting
+                  ? 'Opening secure checkout…'
+                  : selected.length === 0
+                    ? 'Choose dues to pay'
+                    : blocked
+                      ? 'Payment being checked'
+                      : `${payAgain ? 'Pay again' : 'Pay'} ${formatNaira(selectedTotal)}`}
+                {selected.length > 0 && !redirecting && !blocked && <IconArrow />}
               </button>
+              {blocked && (
+                <span className="fine" role="note">
+                  A payment for {open.checking.length === 1 ? 'this' : 'these'} dues is still being checked. You can pay again if it isn’t
+                  confirmed within {config.pendingPauseHours} hours.
+                </span>
+              )}
+              {payAgain && (
+                <span className="fine" role="note">
+                  This starts a new payment. Your earlier payment ({open.unconfirmed.map((a) => a.reference).join(', ')}) was never confirmed.
+                  If both go through, the extra is kept as credit for an officer to review.
+                </span>
+              )}
               <span className="fine">{modeLabels.payFootnote}</span>
             </div>
           )}
@@ -228,7 +270,18 @@ export function MemberOverview({
   );
 }
 
-function ChargeRow({ view, checked, onToggle }: { view: ChargeView; checked?: boolean; onToggle?: () => void }) {
+function ChargeRow({
+  view,
+  checked,
+  onToggle,
+  unconfirmed,
+}: {
+  view: ChargeView;
+  checked?: boolean;
+  onToggle?: () => void;
+  /** Connected mode: the pending payment for this charge is past the pause. */
+  unconfirmed?: boolean;
+}) {
   const { charge, outstandingKobo, paidKobo, status, hasPendingAttempt } = view;
   const partial = paidKobo > 0 && outstandingKobo > 0;
   const inputId = `pick-${charge.id}`;
@@ -239,7 +292,12 @@ function ChargeRow({ view, checked, onToggle }: { view: ChargeView; checked?: bo
         <span className="charge-sub">
           {status === 'paid' ? `${formatNaira(charge.amountKobo)} paid` : `Due ${formatDay(charge.dueDate)}`}
           {partial && ` · ${formatNaira(paidKobo)} of ${formatNaira(charge.amountKobo)} paid`}
-          {hasPendingAttempt && (status === 'paid' ? ' · An earlier payment is still unconfirmed' : ' · Payment being checked')}
+          {hasPendingAttempt &&
+            (status === 'paid'
+              ? ' · An earlier payment is still unconfirmed'
+              : unconfirmed
+                ? ' · Earlier payment not confirmed'
+                : ' · Payment being checked')}
         </span>
         {partial && (
           <span className="progress" aria-hidden="true">

@@ -27,6 +27,8 @@ export async function createCheckout(deps: {
   provider: PaymentProvider;
   email: string;
   chargeIds: string[];
+  /** The member chose to pay again after an earlier payment stayed unconfirmed. */
+  payAgain?: boolean;
   callbackUrl: string;
 }): Promise<CheckoutResult | CheckoutFailure> {
   if (!Array.isArray(deps.chargeIds) || deps.chargeIds.length === 0 || deps.chargeIds.some((id) => typeof id !== 'string')) {
@@ -34,6 +36,7 @@ export async function createCheckout(deps: {
   }
   const attempt = await deps.memberRpc.call<{ reference: string; amount_kobo: number; currency: string }>('start_payment_attempt', {
     p_charge_ids: deps.chargeIds,
+    p_pay_again: deps.payAgain === true,
   });
   try {
     const { authorizationUrl } = await deps.provider.initializeCheckout({

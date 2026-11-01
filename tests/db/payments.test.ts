@@ -31,10 +31,10 @@ async function counts() {
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
 const providers = () => ({ [fake.id]: fake });
-const checkout = (k: 'A' | 'B' | 'C' | 'D', chargeIds: string[]) =>
+const checkout = (k: 'A' | 'B' | 'C' | 'D', chargeIds: string[], payAgain = false) =>
   createCheckout({
     memberRpc: pgRpc(db, member(db, k)), serviceRpc: pgRpc(db, service), provider: fake,
-    email: `member-${k.toLowerCase()}@example.test`, chargeIds, callbackUrl: 'http://localhost:5173/?payment=return',
+    email: `member-${k.toLowerCase()}@example.test`, chargeIds, payAgain, callbackUrl: 'http://localhost:5173/?payment=return',
   });
 async function deliverWebhook(reference: string, event = 'charge.success') {
   const { rawBody, headers } = await fake.webhook(reference, event);
@@ -305,7 +305,10 @@ describe('Scenario D: concurrent distinct payments', () => {
     if (!first.ok) throw new Error('checkout failed');
     fake.settle(first.reference, { status: 'pending', paidAt: null });
     await reconcileAttempts({ serviceRpc: pgRpc(db, service), providers: providers(), olderThanSeconds: 0 });
-    const second = await checkout('A', [annual]);
+    // Paying again is refused inside the 48-hour pause; after it, only with "pay again".
+    await expect(checkout('A', [annual], true)).rejects.toThrow(/still being checked/);
+    await db.pool.query(`update app.settings set clock_override = '2026-11-26 11:00 Africa/Lagos'`);
+    const second = await checkout('A', [annual], true);
     if (!second.ok) throw new Error('checkout failed');
     fake.settle(second.reference, { status: 'success' });
     await deliverWebhook(second.reference);
@@ -454,5 +457,90 @@ describe('verification answers about a different reference', () => {
     expect(await db.q(member(db, 'A'), `select 1 from public.tasks`)).toEqual([]); // members never see tasks
     const audits = await db.q(owner, `select 1 from public.audit_events where action = 'Payment held' and detail like $1`, [`%${co.reference}%`]);
     expect(audits).toHaveLength(1);
+  });
+});
+
+describe('one open payment per charge', () => {
+  // Seed fixture (fresh copy per test): Member C's annual dues have a submitted
+  // payment from 19 November that is still pending. The clock is 24 November,
+  // so it is past the 48-hour pause.
+  const attempts = (k: 'A' | 'C') =>
+    db.q<{ reference: string; status: string; closed_reason: string | null }>(
+      owner, 'select reference, status, closed_reason from public.payment_attempts where member_id = $1 order by created_at, reference', [MEMBER[k]]);
+
+  it('refuses a second payment while the first is still inside the pause', async () => {
+    await db.pool.query(`update app.settings set clock_override = '2026-11-20 10:00 Africa/Lagos'`);
+    const before = await attempts('C');
+    const annual = await chargeId('C', 'Annual dues');
+    await expect(checkout('C', [annual])).rejects.toThrow(/still being checked .*within 48 hours/);
+    await expect(checkout('C', [annual], true)).rejects.toThrow(/still being checked/); // "pay again" does not override it
+    expect(await attempts('C')).toEqual(before);
+    expect(fake.checkouts).toHaveLength(0);
+  });
+
+  it('after the pause, pays again only when the member says so; the earlier payment stays pending', async () => {
+    const annual = await chargeId('C', 'Annual dues');
+    const before = await attempts('C');
+    await expect(checkout('C', [annual])).rejects.toThrow(/has not been confirmed\. Choose to pay again/);
+    expect(await attempts('C')).toEqual(before);
+
+    const co = await checkout('C', [annual], true);
+    expect(co.ok).toBe(true);
+    const after = await attempts('C');
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.find((a) => a.reference === before[0].reference)?.status).toBe('pending');
+    expect((await balances('C')).outstanding).toBe(3_500_000);
+  });
+
+  it('charges without a pending payment are not affected', async () => {
+    const co = await checkout('C', [await chargeId('C', 'Welfare')]);
+    expect(co.ok).toBe(true);
+  });
+
+  it('a new checkout closes an older unsubmitted one for the same charge', async () => {
+    const levy = await chargeId('A', 'Community project levy');
+    const first = await checkout('A', [levy]);
+    const second = await checkout('A', [levy]);
+    if (!first.ok || !second.ok) throw new Error('checkout failed');
+    const rows = await attempts('A');
+    const one = rows.find((r) => r.reference === first.reference)!;
+    expect(one.status).toBe('abandoned');
+    expect(one.closed_reason).toBe(`Replaced by a newer checkout ${second.reference}`);
+    expect(rows.find((r) => r.reference === second.reference)?.status).toBe('started');
+  });
+
+  it('a late payment on the replaced checkout is still recorded, once, and the excess is kept as credit', async () => {
+    const levy = await chargeId('A', 'Community project levy');
+    const first = await checkout('A', [levy]);
+    const second = await checkout('A', [levy]);
+    if (!first.ok || !second.ok) throw new Error('checkout failed');
+    for (const ref of [first.reference, second.reference]) {
+      fake.settle(ref, { status: 'success' });
+      await deliverWebhook(ref);
+    }
+    await process();
+    expect((await counts()).payments).toBe(4);
+    const b = await balances('A');
+    expect(b.outstanding).toBe(2_000_000);
+    expect(b.credit).toBe(1_000_000);
+  });
+
+  it('two quick requests for the same charge leave one open checkout', async () => {
+    const levy = await chargeId('A', 'Community project levy');
+    const results = await Promise.all([checkout('A', [levy]), checkout('A', [levy])]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    const open = (await attempts('A')).filter((r) => r.status === 'started');
+    expect(open).toHaveLength(1);
+  });
+
+  it('new wording: the pause reads as hours and account links name the member', async () => {
+    const [i] = await db.q<{ w: string }>(owner, `select app.interval_words(interval '48 hours') w, app.interval_words(interval '1 hour') o`);
+    expect(i.w).toBe('48 hours');
+    // The seed flags Member C's attempt through app.flag_unresolved_attempts (migrations run first).
+    const [t] = await db.q<{ detail: string }>(owner, `select detail from public.tasks where type = 'unresolved-payment'`);
+    expect(t.detail).toMatch(/has not been confirmed after 48 hours\./);
+    await db.pool.query(`select public.server_link_member_user($1, $2)`, [MEMBER.D, db.users.D]);
+    const [a] = await db.q<{ detail: string }>(owner, `select detail from public.audit_events where action = 'Account linked' order by id desc limit 1`);
+    expect(a.detail).toBe('Member D linked to a sign-in account');
   });
 });

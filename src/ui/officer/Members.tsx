@@ -4,6 +4,7 @@ import { formatDayYear } from '../../domain/time';
 import { memberSummary } from '../../domain/ledger';
 import type { LedgerState } from '../../domain/types';
 import { StatusChip } from '../common/bits';
+import { modeLabels } from '../../config/mode';
 import { IconAlert, IconCheckCircle, IconClock } from '../common/Icons';
 
 export function Members({ ledger, onViewReceipt }: { ledger: LedgerState; onViewReceipt: (id: string) => void }) {
@@ -11,7 +12,7 @@ export function Members({ ledger, onViewReceipt }: { ledger: LedgerState; onView
   return (
     <div className="page">
       <h1>Members</h1>
-      <p className="muted">Fictional members. Adding or editing members comes with the connected version.</p>
+      <p className="muted">{modeLabels.membersHelp}</p>
       <ul className="member-cards">
         {ledger.members.map((m) => {
           const s = memberSummary(ledger, m.id);

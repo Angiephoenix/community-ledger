@@ -31,14 +31,26 @@ Not found in any source I could read: the complete list of Paystack verify `stat
 
 | Area | Tested locally | Externally verified | Blocked or not done |
 | --- | --- | --- | --- |
-| Migrations and seed | Applied to a fresh PostgreSQL 16 on every test run | No | A Supabase test project (which runs Postgres 17) |
-| Access control (grants, RLS, functions, views) | Yes, with a shim for Supabase's roles, `auth.uid()` and default grants | No | Supabase project |
+| Migrations and seed | Applied to a fresh PostgreSQL 16 on every test run | Yes: all five migrations and the seed applied to `community-ledger-test` (Postgres 17); see the log | — |
+| Access control (grants, RLS, functions, views) | Yes, with a shim for Supabase's roles, `auth.uid()` and default grants | Partly: anonymous requests through the live API (38/38 refused or empty) | Member and officer sessions: `scripts/check-access.mjs`, run by Angie (passwords stay on her computer) |
 | Payment pipeline (attempts, inbox, processing, posting, retries, reconciliation, mismatch holds) | Yes, real database plus a fake provider, and the real Paystack adapter against **simulated** Paystack HTTP | No | Paystack test key |
 | Edge Function HTTP handlers | Yes: run under Deno 2.9.6 with the real `@supabase/server` auth gate and test-only keys | No | Supabase project |
-| Supabase gateway (`verify_jwt` per function) | `config.toml` validated by the official CLI; gateway itself not run (needs Docker or a project) | No | Supabase project |
+| Supabase gateway (`verify_jwt` per function) | `config.toml` validated by the official CLI | Partly (check 3); see the log | Member-JWT requests are covered by the access checker |
 | Paystack test mode | Adapter implemented from Paystack's OpenAPI spec and CLI; request building, response checks, signatures and the ledger pipeline tested with simulated HTTP | Only reachability (401 without a key) | A Paystack **test** secret key |
 | PostHog | Exact outbound payloads tested; `verify-posthog.mjs` verdicts tested end to end against a local stand-in | No | PostHog test project, and its ingestion and app hosts allowed here |
-| Sign-in screens | Sign-in, unreachable and unconfigured states in a browser | No | Supabase project and test accounts |
+| Sign-in screens | Sign-in, unreachable and unconfigured states in a browser | Yes, manually by Angie: Members A–D and the officer signed in and saw the expected pages and figures (screenshots, 1 November) | Unlinked-account screen (no unlinked test account exists) |
+
+### One open payment per charge (connected system)
+
+The database refuses a new payment for a charge while an earlier **submitted**
+payment for it is still being checked (inside the 48-hour reminder pause). Once
+that earlier payment has gone unconfirmed past the pause, the member may pay
+again, but only by choosing **Pay again** (`p_pay_again`); the screen explains
+that if both go through the extra is kept as credit for an officer to review.
+Starting a new checkout closes any older checkout for the same charges that was
+opened but never submitted. Attempts for one member are created one at a time.
+The standalone demo keeps its milestone 1 behaviour (paying again is allowed at
+any time and the excess becomes credit).
 
 Fake-provider and fake-network tests prove our own logic. They are not evidence
 about how Paystack or PostHog behave.
@@ -153,7 +165,9 @@ handlers through the `deno` dev dependency.
 ### Hosted test project
 
 Every command and flag below was checked against the official CLI 2.122.0
-(`--help`). None has been run against a project yet. Replace `<project-ref>`
+(`--help`). [TEST-PROJECT-LOG.md](TEST-PROJECT-LOG.md) records which have been
+run against `community-ledger-test`, and where the documented Management API
+was used instead (migrations, seed). Replace `<project-ref>`
 with your **test** project's reference. Commands that need a secret read it from
 your environment or a git-ignored file; never type a secret into chat.
 
@@ -295,14 +309,32 @@ receipt and reporting a (fictional) problem, as well as paying.
 A **verified** result covers the analytics checks only. It does not complete
 milestone 2; see section 6.
 
+12. Check access boundaries with real sign-in sessions (check 2), on your own
+computer from the repository folder, with `.env.local` in place:
+
+```bash
+node scripts/check-access.mjs
+```
+
+It runs the anonymous checks, then asks for the officer's and each member's
+email and password (the password is not shown as you type). It signs in through
+the same public API as the app, tries to read other members' records and
+officer data, and calls officer and server operations with arguments that
+validation rejects anyway, so a refusal shows as error `42501` and a failure
+changes nothing (the one exception is noted in the script). Output is PASS/FAIL
+lines with counts only; passwords and session tokens are never printed or
+saved. `--anon` runs only the anonymous part, which needs no sign-in.
+
 ## 6. Milestone 2 completion criteria
 
 Milestone 2 is complete only when **every** item below has been verified
 against the real test projects and the evidence recorded. Progress and
 evidence are kept in [TEST-PROJECT-LOG.md](TEST-PROJECT-LOG.md). As of
 1 November: migrations, seed, auth settings and the four functions are in
-place on `community-ledger-test`; check 3 is partly verified; checks 1, 2 and
-4 to 10 are not yet done. Local tests,
+place on `community-ledger-test`; check 3 is verified; check 1 is verified
+manually by Angie except for the unlinked-account screen; check 2 is verified
+for anonymous requests only (member and officer sessions pending); checks 4 to
+10 are not yet done. Local tests,
 simulated provider responses and the analytics verdict on their own are not
 enough.
 

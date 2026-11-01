@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { renderToStaticMarkup as renderToStaticMarkupSync } from 'react-dom/server';
 import { toLedgerState, type ServerRows } from '../../src/connected/mapRows';
 import { memberSummary } from '../../src/domain/ledger';
 import { collectionReport } from '../../src/domain/reports';
@@ -74,5 +75,83 @@ describe('connected screens agree with the database', () => {
     expect(screen.checks.every((c) => c.ok)).toBe(true);
     expect(r.checks.every((c) => c.ok)).toBe(true);
     expect(screen.unappliedKobo).toBe(1_500_000);
+  });
+});
+
+describe('connected screens: wording and the pay button (rendered with real rows)', () => {
+  // Rendered on the server with the connected build's labels. Uses a fresh
+  // copy of the seed: Member C's 19 November payment is still pending and is
+  // past the 48-hour pause on the 24 November test clock.
+  async function render(node: unknown) {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    return renderToStaticMarkup(node as never).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  }
+  async function connectedUi() {
+    vi.resetModules();
+    vi.stubEnv('VITE_APP_MODE', 'connected');
+    const React = await import('react');
+    const [{ MemberOverview }, { MemberStatement }, { Reports }, { NeedsAttention }, { Members }] = await Promise.all([
+      import('../../src/ui/member/MemberOverview'), import('../../src/ui/member/MemberStatement'),
+      import('../../src/ui/officer/Reports'), import('../../src/ui/officer/NeedsAttention'), import('../../src/ui/officer/Members'),
+    ]);
+    return { h: React.createElement, MemberOverview, MemberStatement, Reports, NeedsAttention, Members };
+  }
+  let fresh: TestDb;
+  beforeAll(async () => { fresh = await freshDb(); });
+  afterAll(async () => { vi.unstubAllEnvs(); await fresh?.close(); });
+  const readFresh = async (who: Who, isOfficer: boolean) => { const keep = db; db = fresh; try { return await readAs(who, isOfficer); } finally { db = keep; } };
+
+  it('Member C: an unconfirmed payment past the pause offers "Pay again", with the risk spelled out', async () => {
+    const ui = await connectedUi();
+    const ledger = toLedgerState(await readFresh(member(fresh, 'C'), false));
+    const text = await render(ui.h(ui.MemberOverview, { ledger, memberId: MEMBER.C, onViewReceipt: () => {}, onGo: () => {} }));
+    expect(text).toMatch(/has not been confirmed after 48 hours\. Nothing was credited from it/);
+    expect(text).toMatch(/Earlier payment not confirmed/);
+    expect(text).toMatch(/Pay again ₦20,000/);
+    expect(text).toMatch(/If both go through, the extra is kept as credit/);
+    expect(text).not.toMatch(/We’re checking a payment/);
+  });
+
+  it('Member C inside the pause: the button is disabled and says why', async () => {
+    const ui = await connectedUi();
+    // 21 November 10:00: the annual dues are overdue (so preselected) and the
+    // 19 November 15:00 payment is 43 hours old, inside the pause.
+    await fresh.pool.query(`update app.settings set clock_override = '2026-11-21 10:00 Africa/Lagos'`);
+    try {
+      const ledger = toLedgerState(await readFresh(member(fresh, 'C'), false));
+      const html = renderToStaticMarkupSync(ui.h(ui.MemberOverview, { ledger, memberId: MEMBER.C, onViewReceipt: () => {}, onGo: () => {} }));
+      expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Payment being checked/);
+      expect(html).toMatch(/You can pay again if it isn’t confirmed within 48 hours/);
+    } finally {
+      await fresh.pool.query(`update app.settings set clock_override = '2026-11-24 10:00 Africa/Lagos'`);
+    }
+  });
+
+  it('statements, reports, members and Needs attention use test-system wording, hours and names', async () => {
+    const ui = await connectedUi();
+    const mine = toLedgerState(await readFresh(member(fresh, 'A'), false));
+    const statement = await render(ui.h(ui.MemberStatement, { ledger: mine, memberId: MEMBER.A, onViewReceipt: () => {} }));
+    expect(statement).toMatch(/Test system with fictional records/);
+    expect(statement).not.toMatch(/Demo/);
+
+    await fresh.pool.query(`select public.server_link_member_user($1, $2)`, [MEMBER.D, fresh.users.D]);
+    const all = toLedgerState(await readFresh(officer(fresh), true));
+    // A line written before the wording change, as stored on the live test project.
+    all.audit.push({ id: 'old', at: all.now, actor: 'system', action: 'Account linked', detail: `Member ${MEMBER.C} linked to a sign-in account` });
+    all.tasks.push({ ...all.tasks[0], id: 'old-task', key: 'old', status: 'open', detail: 'Attempt CL-X for ₦1 has not been confirmed after 48:00:00. Nothing was credited from it.' });
+    const reports = await render(ui.h(ui.Reports, { ledger: all }));
+    expect(reports).toMatch(/Test system with fictional records/);
+    expect(reports).toMatch(/not tracked in this test system/);
+    expect(reports).toMatch(/1 unconfirmed payment attempt \(₦20,000\) is not counted/);
+    expect(reports).toMatch(/Member D linked to a sign-in account/);
+    expect(reports).toMatch(/Member C linked to a sign-in account/);
+    expect(reports).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+    expect(reports).not.toMatch(/Demo|this demo/);
+    const attention = await render(ui.h(ui.NeedsAttention, { ledger: all }));
+    expect(attention).toMatch(/after 48 hours\./);
+    expect(attention).not.toMatch(/48:00:00/);
+    const members = await render(ui.h(ui.Members, { ledger: all, onViewReceipt: () => {} }));
+    expect(members).not.toMatch(/connected version/);
+    expect(members).toMatch(/set up by the system administrator; there is no screen to add or edit them yet/);
   });
 });

@@ -23,7 +23,14 @@ export const modeLabels =
     ? {
         notice: brand.testNotice,
         runNow: 'Run now · Test system',
-        runNowHelp: 'Scheduled runs are not set up in this test system yet. Run them here when you need them.',
+        // Checked against the test project's cron.job on 1 November 2026: the only
+        // schedule is the payment worker. Dues and reminders have none.
+        runNowHelp:
+          'Recurring dues and reminders do not run on a schedule in this test system. Run them here when you need them. Payment confirmations are handled separately by the server’s payment worker.',
+        recordsLabel: 'Test system with fictional records',
+        trackingScope: 'this test system',
+        membersHelp:
+          'Fictional test members, with each member’s balance and status. Members and their sign-in accounts are set up by the system administrator; there is no screen to add or edit them yet.',
         payFootnote: 'Test payments only · No real money',
         paymentKind: 'Test payment',
         method: 'Online payment (test mode)',
@@ -33,7 +40,10 @@ export const modeLabels =
     : {
         notice: brand.demoNotice,
         runNow: 'Run now · Demo',
-        runNowHelp: 'In the connected version these run on a schedule. Here you can run them yourself against the demo clock.',
+        runNowHelp: 'Nothing runs on a schedule in this demo. Run each job yourself against the demo clock.',
+        recordsLabel: 'Demo with fictional records',
+        trackingScope: 'this demo',
+        membersHelp: 'Fictional members, with each member’s balance and status. There is no screen to add or edit members in this demo.',
         payFootnote: 'Demo · No real payments',
         paymentKind: 'Simulated',
         method: 'Payment simulator',

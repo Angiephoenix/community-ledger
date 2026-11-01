@@ -12,6 +12,7 @@ describe('fresh database', () => {
       '20261031090100_ledger_functions.sql',
       '20261031090200_security.sql',
       '20261101090000_verification_mismatch.sql',
+      '20261102090000_payment_attempt_guard.sql',
     ]);
   });
 

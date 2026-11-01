@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatDateTime } from '../../domain/time';
-import { memberName } from '../../domain/ledger';
+import { memberName, readableDetail } from '../../domain/ledger';
 import type { LedgerState, Task } from '../../domain/types';
 import { actions } from '../../state/store';
 import { EmptyState } from '../common/bits';
@@ -84,7 +84,7 @@ function TaskCard({ ledger, task }: { ledger: LedgerState; task: Task }) {
           </span>
         </div>
       </div>
-      <p>{task.detail}</p>
+      <p>{readableDetail(ledger, task.detail)}</p>
       {decisionNote[task.type] && <p className="fine">{decisionNote[task.type]}</p>}
       <form
         className="task-form"

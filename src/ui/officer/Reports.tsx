@@ -1,6 +1,7 @@
 import { formatNaira } from '../../domain/money';
 import { formatDateTime } from '../../domain/time';
-import { memberName } from '../../domain/ledger';
+import { memberName, readableDetail } from '../../domain/ledger';
+import { modeLabels } from '../../config/mode';
 import { collectionReport } from '../../domain/reports';
 import type { LedgerState } from '../../domain/types';
 import { brand } from '../../config/brand';
@@ -20,7 +21,7 @@ export function Reports({ ledger, serverChecks }: { ledger: LedgerState; serverC
       <article className="card print-area" aria-labelledby="rep-h">
         <h2 id="rep-h">Collection report</h2>
         <p className="muted">
-          {brand.groupName} · As of {formatDateTime(rep.asOf)} · Demo with fictional records
+          {brand.groupName} · As of {formatDateTime(rep.asOf)} · {modeLabels.recordsLabel}
         </p>
         <dl className="stat-row">
           <div>
@@ -126,8 +127,8 @@ export function Reports({ ledger, serverChecks }: { ledger: LedgerState; serverC
           </>
         )}
         <p className="fine">
-          {rep.pendingAttempts} unconfirmed payment attempt{rep.pendingAttempts === 1 ? '' : 's'} ({formatNaira(rep.pendingAttemptsKobo)})
-          are not counted as received. Bank settlement and provider fees are not tracked in this demo, so this report is not a bank
+          {rep.pendingAttempts} unconfirmed payment attempt{rep.pendingAttempts === 1 ? '' : 's'} ({formatNaira(rep.pendingAttemptsKobo)}){' '}
+          {rep.pendingAttempts === 1 ? 'is' : 'are'} not counted as received. Bank settlement and provider fees are not tracked in {modeLabels.trackingScope}, so this report is not a bank
           reconciliation.
         </p>
       </article>
@@ -141,7 +142,7 @@ export function Reports({ ledger, serverChecks }: { ledger: LedgerState; serverC
               <span className="row-main">
                 <strong>{a.action}</strong>
                 <span className="muted">
-                  {formatDateTime(a.at)} · {a.actor} · {a.detail}
+                  {formatDateTime(a.at)} · {a.actor} · {readableDetail(ledger, a.detail)}
                 </span>
               </span>
             </li>

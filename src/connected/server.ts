@@ -101,8 +101,8 @@ async function callFunction<T>(name: string, body: unknown): Promise<T> {
   return json;
 }
 
-export function startHostedCheckout(chargeIds: string[]) {
-  return callFunction<{ ok: boolean; authorizationUrl?: string; reference?: string; message?: string }>('create-checkout', { chargeIds });
+export function startHostedCheckout(chargeIds: string[], payAgain = false) {
+  return callFunction<{ ok: boolean; authorizationUrl?: string; reference?: string; message?: string }>('create-checkout', { chargeIds, payAgain });
 }
 
 export function checkReturnedPayment(reference: string) {

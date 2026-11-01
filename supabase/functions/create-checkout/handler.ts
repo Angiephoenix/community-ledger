@@ -11,7 +11,7 @@ export interface CheckoutFunctionOptions {
   rpcs(ctx: SupabaseContext): { memberRpc: Rpc; serviceRpc: Rpc };
 }
 
-const SAFE_MESSAGES = /already paid|own charges|Choose at least|selected twice|Unknown charge|Sign in/;
+const SAFE_MESSAGES = /already paid|own charges|Choose at least|selected twice|Unknown charge|Sign in|still being checked|has not been confirmed/;
 
 /**
  * Member endpoint: start a hosted checkout. `auth: 'user'` verifies the
@@ -26,11 +26,11 @@ export function createCheckoutFunction(o: CheckoutFunctionOptions) {
       if (req.method !== 'POST') return json({ ok: false, code: 'method-not-allowed' }, 405, cors);
       const email = ctx.userClaims?.email;
       if (!email) return json({ ok: false, code: 'no-email', message: 'Your account needs an email address to pay online.' }, 400, cors);
-      const body = (await req.json().catch(() => ({}))) as { chargeIds?: unknown };
+      const body = (await req.json().catch(() => ({}))) as { chargeIds?: unknown; payAgain?: unknown };
       const chargeIds = Array.isArray(body.chargeIds) ? body.chargeIds.filter((x): x is string => typeof x === 'string') : [];
       try {
         const { memberRpc, serviceRpc } = o.rpcs(ctx);
-        const result = await createCheckout({ memberRpc, serviceRpc, provider: o.provider, email, chargeIds, callbackUrl: `${o.appOrigin}/?payment=return` });
+        const result = await createCheckout({ memberRpc, serviceRpc, provider: o.provider, email, chargeIds, payAgain: body.payAgain === true, callbackUrl: `${o.appOrigin}/?payment=return` });
         return json(result, result.ok ? 200 : result.code === 'invalid-request' ? 400 : 503, cors);
       } catch (e) {
         const message = e instanceof Error ? e.message : '';

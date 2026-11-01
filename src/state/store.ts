@@ -280,9 +280,9 @@ export const actions = {
   },
 
   /** Connected: open the provider's hosted checkout for the chosen dues. */
-  async payWithCheckout(chargeIds: string[]) {
+  async payWithCheckout(chargeIds: string[], payAgain = false) {
     try {
-      const r = await (await srv()).startHostedCheckout(chargeIds);
+      const r = await (await srv()).startHostedCheckout(chargeIds, payAgain);
       if (r.ok && r.authorizationUrl && r.reference) {
         try {
           sessionStorage.setItem(CHECKOUT_KEY, r.reference);

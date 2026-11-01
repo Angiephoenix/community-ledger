@@ -14,6 +14,25 @@ export const config = {
   assessAheadDays: 10,
 };
 
+/** True once a submitted payment has gone unconfirmed for longer than the reminder pause. */
+export function pastPendingPause(s: LedgerState, a: PaymentAttempt): boolean {
+  return Date.parse(s.now) - Date.parse(a.createdAt) >= config.pendingPauseHours * 3600_000;
+}
+
+/**
+ * Submitted (pending) payments that cover any of `chargeIds`, split by whether
+ * they are still inside the reminder pause. Used by the connected checkout:
+ * the server refuses a new payment while one is being checked, and asks the
+ * member to confirm before paying again once it has gone unconfirmed.
+ */
+export function pendingFor(s: LedgerState, chargeIds: string[]) {
+  const pending = s.attempts.filter((a) => a.status === 'pending' && a.chargeIds.some((id) => chargeIds.includes(id)));
+  return {
+    checking: pending.filter((a) => !pastPendingPause(s, a)),
+    unconfirmed: pending.filter((a) => pastPendingPause(s, a)),
+  };
+}
+
 export type ChargeStatus = 'paid' | 'overdue' | 'due-soon' | 'outstanding';
 
 /** Mutable working copy helper: domain functions clone, change, then return. */
@@ -147,6 +166,21 @@ export function memberSummary(s: LedgerState, memberId: string): MemberSummary {
 
 export function today(s: LedgerState): LocalDate {
   return lagosDateOf(s.now);
+}
+
+/**
+ * Display text for stored audit and task lines. Records written before
+ * 2 November 2026 by the connected database name members by id and give the
+ * pause as a raw interval ("48:00:00"). The stored text is never changed (the
+ * audit trail is append-only); this only changes how it reads on screen.
+ */
+export function readableDetail(s: LedgerState, text: string): string {
+  let out = text.replace(/\bafter (\d+):00:00\b/g, (_m, h: string) => `after ${Number(h)} hour${Number(h) === 1 ? '' : 's'}`);
+  for (const m of s.members) {
+    if (!m.id || !out.includes(m.id)) continue;
+    out = out.split(`Member ${m.id}`).join(m.displayName).split(m.id).join(m.displayName);
+  }
+  return out;
 }
 
 export function memberName(s: LedgerState, memberId: string | undefined): string {

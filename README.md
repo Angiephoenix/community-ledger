@@ -52,7 +52,7 @@ The demo clock starts at **Tuesday 24 November 2026, 10:00 (Lagos)**. Open **Dem
 Other cases:
 - **Closing checkout**: closing the checkout before choosing an outcome records the attempt as *checkout closed · nothing submitted*. It is not shown as a payment being checked and does not pause reminders.
 - **Pending/failed**: in the checkout, choose *Simulate a pending payment* or *Simulate a failed payment*. The balance does not change. Reminders for that charge pause for 48 hours, then resume, and the attempt goes to Needs attention.
-- **Paying the same dues again while one is pending**: the dues show as paid, with a note that the earlier payment is still unconfirmed. The earlier attempt keeps its *pending* status (only the provider can settle it). If it is confirmed later, it is kept as credit for review.
+- **Paying the same dues again while one is pending**: the dues show as paid, with a note that the earlier payment is still unconfirmed. The earlier attempt keeps its *pending* status (only the provider can settle it). If it is confirmed later, it is kept as credit for review. (The connected test system is stricter: see *One open payment per charge* in [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md).)
 - **Stale reminders**: run reminders on 24 November, move the clock to 2 December (Demo controls), run reminders again and prepare previews. The old "due soon" reminder for the levy is cancelled as superseded and only the current overdue reminder is previewed.
 - **Two payments for one charge**: Demo controls → *Two payments for one charge*. Both payments are kept. The second becomes credit flagged in Needs attention.
 - **Special levy**: Officer → Dues → New levy. Pick members, review, publish.
@@ -120,4 +120,4 @@ These are demo defaults, not the group's confirmed rules.
 
 ## Milestone 2 status
 
-Not complete. See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md) for exactly what is tested, what is verified and what is blocked. In short: the database, access control, payment pipeline, Edge Function handlers and the Paystack test-mode adapter are built and tested locally (PostgreSQL plus Deno, with simulated provider responses). Nothing has yet been verified against real Supabase, Paystack or PostHog test projects.
+Not complete. See [docs/CONNECTED-SYSTEM.md](docs/CONNECTED-SYSTEM.md) for exactly what is tested, what is verified and what is blocked, and [docs/TEST-PROJECT-LOG.md](docs/TEST-PROJECT-LOG.md) for the evidence. In short: the database, access control, payment pipeline, Edge Function handlers and the Paystack test-mode adapter are built and tested locally (PostgreSQL plus Deno, with simulated provider responses). On the Supabase test project, the schema, seed, functions, worker schedule and gateway are in place and checked, and sign-in has been checked manually. Member and officer access boundaries, Paystack test payments and PostHog are not yet verified.

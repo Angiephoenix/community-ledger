@@ -8,6 +8,7 @@ import { brand } from '../../config/brand';
 import { appMode } from '../../config/mode';
 import { actions, notify, track } from '../../state/store';
 import { EmptyState } from '../common/bits';
+import { modeLabels } from '../../config/mode';
 import { Logo } from '../common/Artwork';
 import { IconCheckCircle, IconFlag, IconPrint, IconReceipt } from '../common/Icons';
 
@@ -47,7 +48,7 @@ export function MemberStatement({
           </div>
           <div>
             <h2 id="stmt-h">{memberName(ledger, memberId)}</h2>
-            <p className="muted">As of {formatDateTime(ledger.now)} · Demo with fictional records</p>
+            <p className="muted">As of {formatDateTime(ledger.now)} · {modeLabels.recordsLabel}</p>
           </div>
         </header>
 
