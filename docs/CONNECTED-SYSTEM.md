@@ -316,14 +316,35 @@ computer from the repository folder, with `.env.local` in place:
 node scripts/check-access.mjs
 ```
 
-It runs the anonymous checks, then asks for the officer's and each member's
-email and password (the password is not shown as you type). It signs in through
-the same public API as the app, tries to read other members' records and
-officer data, and calls officer and server operations with arguments that
-validation rejects anyway, so a refusal shows as error `42501` and a failure
-changes nothing (the one exception is noted in the script). Output is PASS/FAIL
-lines with counts only; passwords and session tokens are never printed or
-saved. `--anon` runs only the anonymous part, which needs no sign-in.
+It asks for the officer's email and password first (the password is not
+shown as you type) and reads, as the officer, what exists. Only then does it
+run the anonymous checks and sign in as each member. It tries to read other
+members' records and officer data, and calls a set of officer and server
+operations whose code paths were checked to change nothing even if their
+authorization check were missing (listed in `scripts/access-check-lib.mjs`).
+At the end the officer re-reads the payment, charge, officer, levy and task
+records and the run fails if any changed.
+
+The default run is therefore **not purely read-only**, but it is designed not
+to change data. Each result is PASS, FAIL, INCONCLUSIVE (for example a network
+or server error, or an empty answer when there was nothing to hide) or SKIPPED
+(a prerequisite failed: if the officer cannot sign in or the baseline reads
+fail, every member check is skipped). Exit code 0 means every check passed; 1
+means a check failed; 3 means the run was incomplete.
+
+Not called by the live checker: `server_claim_provider_events` and
+`server_claim_analytics_events` (they claim at least one row even with a limit
+of 0), and the other server and officer jobs that would change data if their
+check failed. Their refusal is covered by the database tests
+(`tests/db/access.test.ts`) and the grant inventory, not by live evidence.
+
+`--include-mutating-probes` adds four probes that **would change live data if
+the authorization they test were broken**: starting a payment or a checkout for
+another member's charge, asking `payment-return` about another member's
+payment, and calling the payment worker with a member session. They are off by
+default. `--anon` runs only the anonymous part, which needs no sign-in.
+Output is results and counts only; passwords and session tokens are never
+printed or saved.
 
 ## 6. Milestone 2 completion criteria
 

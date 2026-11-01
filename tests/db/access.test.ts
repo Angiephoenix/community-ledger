@@ -191,3 +191,38 @@ describe('grants inventory', () => {
     for (const r of rows) expect(r.opts, r.v).toContain('security_invoker=true');
   });
 });
+
+describe('claim functions (not probed by the live checker)', () => {
+  // server_claim_provider_events and server_claim_analytics_events claim at
+  // least one row (greatest(p_limit, 1)), so the live checker never calls them.
+  // Their refusal is checked here against a database that has rows to claim.
+  it('anonymous, member and officer sessions are refused and nothing is claimed', async () => {
+    await db.q(service, `select public.server_record_provider_event('paystack', 'claim-check', 'charge.success', 'CL-NONE', '{}')`);
+    await db.q({ kind: 'owner' }, `select app.queue_analytics('payment started', 'claim-check', $1)`, [MEMBER.A]);
+    const snapshot = () => db.q<Record<string, unknown>>({ kind: 'owner' }, `select
+      (select count(*) from app.provider_events where status <> 'received' or attempts > 0 or lease_until is not null) as provider_claimed,
+      (select count(*) from app.provider_events) as provider_total,
+      (select count(*) from app.analytics_outbox where status <> 'pending' or attempts > 0 or lease_until is not null) as analytics_claimed,
+      (select count(*) from app.analytics_outbox) as analytics_total`);
+    const [before] = await snapshot();
+    expect(Number(before.provider_total)).toBeGreaterThan(0);
+    expect(Number(before.analytics_total)).toBeGreaterThan(0);
+    for (const who of [anon, member(db, 'A'), officer(db)]) {
+      for (const limit of [0, 1]) {
+        await denied(db.q(who, `select public.server_claim_provider_events($1, 60)`, [limit]));
+        await denied(db.q(who, `select public.server_claim_analytics_events($1, 60)`, [limit]));
+      }
+    }
+    expect(await snapshot()).toEqual([before]);
+  });
+
+  it('only the server role can execute any server_* function', async () => {
+    const rows = await db.q<{ fn: string; role: string }>({ kind: 'owner' }, `
+      select p.oid::regprocedure::text as fn, r.role from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      cross join (values ('anon'), ('authenticated'), ('service_role')) r(role)
+      where n.nspname = 'public' and p.proname like 'server\\_%' and has_function_privilege(r.role, p.oid, 'execute')`);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.filter((r) => r.role !== 'service_role')).toEqual([]);
+    expect(rows.map((r) => r.fn)).toEqual(expect.arrayContaining(['server_claim_provider_events(integer,integer)', 'server_claim_analytics_events(integer,integer)']));
+  });
+});
