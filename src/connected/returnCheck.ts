@@ -10,7 +10,9 @@
 //   again, so a start-up-only check never runs there).
 // - One check at a time: overlapping triggers share the check in progress.
 // - A check started for one signed-in account never updates the screen after
-//   that account signs out or another signs in (generation + user id).
+//   that account signs out or another signs in, in this tab or another one:
+//   the generation and the signed-in user are both rechecked after every
+//   wait, before anything is shown.
 // - The saved reference is kept until the answer is final, so a check that
 //   could not be completed can be retried.
 
@@ -64,19 +66,26 @@ export function createReturnChecker(deps: ReturnCheckDeps) {
       deps.clear();
       return;
     }
+    // Same tab generation AND same signed-in user (another tab can switch the
+    // shared session without this tab's generation changing).
+    const stillSameAccount = async () => {
+      if (gen !== generation) return false;
+      const now = await deps.currentUserId().catch(() => null);
+      return gen === generation && now === userId;
+    };
     deps.show('checking');
     let answer: { status?: unknown };
     try {
       answer = await deps.verify(saved.reference);
     } catch {
-      if (gen === generation) deps.show('checking-unavailable');
+      if (await stillSameAccount()) deps.show('checking-unavailable');
       return;
     }
-    if (gen !== generation || (await deps.currentUserId()) !== userId) return;
+    if (!(await stillSameAccount())) return;
     const status: ReturnStatus = typeof answer?.status === 'string' && KNOWN.has(answer.status) ? (answer.status as ReturnStatus) : 'checking-unavailable';
     if (FINAL.has(status)) deps.clear();
     await deps.refresh();
-    if (gen !== generation) return;
+    if (!(await stillSameAccount())) return;
     deps.show(status);
   }
 

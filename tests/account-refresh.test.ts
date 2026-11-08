@@ -149,6 +149,80 @@ describe('a refresh started for one account never writes after the account chang
   });
 });
 
+describe('another tab switches the shared session during a return check (this tab\'s generation unchanged)', () => {
+  function checkerFor(w: ReturnType<typeof world>['w'], refresh: ReturnType<typeof world>['refresh'], verify: () => Promise<{ status?: unknown }>) {
+    const storage = new Map<string, string>();
+    const box = sessionCheckout({ getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => void storage.set(k, v), removeItem: (k) => void storage.delete(k) }, null);
+    box.save('CL-OF-A', 'user-a');
+    const shown: (ReturnStatus | undefined)[] = [];
+    let verifyCalls = 0;
+    const checker = createReturnChecker({
+      load: () => box.load(),
+      clear: () => box.clear(),
+      currentUserId: async () => w.session?.id ?? null,
+      verify: () => {
+        verifyCalls += 1;
+        return verify();
+      },
+      refresh: async () => {
+        await refresh();
+      },
+      show: (st) => shown.push(st),
+    });
+    return { checker, shown, verified: () => verifyCalls };
+  }
+
+  it("A's snapshot is in flight when another tab signs in as B: neither A's records nor A's payment status reach B's screen", async () => {
+    const { w, refresh } = world();
+    const snap = deferred<{ ledgerOf: string }>();
+    w.snapshot = () => snap.promise;
+    const { checker, shown } = checkerFor(w, refresh, async () => ({ status: 'abandoned' }));
+    const run = checker.run();
+    await until(() => w.snapshotCalls === 1);
+    w.session = B; // the other tab; no invalidate(), no generation change
+    w.screen = { status: 'ready', owner: 'user-b', email: 'b@example.test' };
+    snap.resolve({ ledgerOf: 'user-a' });
+    await run;
+    expect(w.writes).toEqual([]);
+    expect(w.screen).toEqual({ status: 'ready', owner: 'user-b', email: 'b@example.test' });
+    expect(shown).toEqual(['checking']);
+  });
+
+  it("A's verification answer arrives after another tab signed in as B: not shown, no refresh", async () => {
+    const { w, refresh } = world();
+    const answer = deferred<{ status?: unknown }>();
+    const { checker, shown, verified } = checkerFor(w, refresh, () => answer.promise);
+    const run = checker.run();
+    await until(() => verified() === 1);
+    w.session = B;
+    answer.resolve({ status: 'confirmed' });
+    await run;
+    expect(shown).toEqual(['checking']);
+    expect(w.snapshotCalls).toBe(0);
+    expect(w.writes).toEqual([]);
+  });
+
+  it("A's verification error arrives after another tab signed in as B: no \"could not check\" message on B's screen", async () => {
+    const { w, refresh } = world();
+    const answer = deferred<{ status?: unknown }>();
+    const { checker, shown, verified } = checkerFor(w, refresh, () => answer.promise);
+    const run = checker.run();
+    await until(() => verified() === 1);
+    w.session = B;
+    answer.reject(new TypeError('fetch failed'));
+    await run;
+    expect(shown).toEqual(['checking']);
+  });
+
+  it('the same sequence with no account change still shows the result', async () => {
+    const { w, refresh } = world();
+    const { checker, shown } = checkerFor(w, refresh, async () => ({ status: 'abandoned' }));
+    await checker.run();
+    expect(shown).toEqual(['checking', 'abandoned']);
+    expect(w.writes).toEqual(['ready']);
+  });
+});
+
 describe('ordinary refreshes still write', () => {
   it('ready, with the email of the account it loaded', async () => {
     const { w, refresh } = world();
