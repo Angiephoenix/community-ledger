@@ -1,4 +1,4 @@
-import { ProviderUnavailableError, type PaymentProvider, type Rpc, type VerifiedTransaction } from './types.ts';
+import { ProviderNotReadyError, ProviderUnavailableError, type PaymentProvider, type Rpc, type VerifiedTransaction } from './types.ts';
 
 export interface ProcessSummary {
   claimed: number;
@@ -128,8 +128,19 @@ export async function reconcileAttempts(deps: {
     try {
       outcomes.push(await applyVerifiedTransaction(deps.serviceRpc, provider, a.reference, await provider.verifyTransaction(a.reference)));
     } catch (e) {
-      outcomes.push(e instanceof ProviderUnavailableError ? 'provider-unavailable' : 'error');
+      // Our own provider errors carry fixed, non-secret messages (an HTTP
+      // status at most); anything else is reported only as 'error'.
+      if (e instanceof ProviderUnavailableError) outcomes.push(`provider-unavailable: ${e.message}`);
+      else if (e instanceof ProviderNotReadyError) outcomes.push(`provider-not-ready: ${e.message}`);
+      else outcomes.push('error');
     }
   }
   return { checked: attempts.length, outcomes };
+}
+
+/** Outcome counts, e.g. { "status-updated": 1 }. Messages are our own fixed texts, never provider payloads. */
+export function countOutcomes(outcomes: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const o of outcomes) out[o] = (out[o] ?? 0) + 1;
+  return out;
 }

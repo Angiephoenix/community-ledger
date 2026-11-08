@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { createCheckout } from '../../supabase/functions/_shared/checkout.ts';
 import { receiveWebhook } from '../../supabase/functions/_shared/webhook.ts';
-import { processProviderEvents, reconcileAttempts } from '../../supabase/functions/_shared/process.ts';
+import { countOutcomes, processProviderEvents, reconcileAttempts } from '../../supabase/functions/_shared/process.ts';
 import { freshDb, member, MEMBER, officer, owner, service, type TestDb } from './harness';
 import { FakeProvider, pgRpc } from './doubles';
 
@@ -542,5 +542,31 @@ describe('one open payment per charge', () => {
     await db.pool.query(`select public.server_link_member_user($1, $2)`, [MEMBER.D, db.users.D]);
     const [a] = await db.q<{ detail: string }>(owner, `select detail from public.audit_events where action = 'Account linked' order by id desc limit 1`);
     expect(a.detail).toBe('Member D linked to a sign-in account');
+  });
+});
+
+describe('worker reconciliation reports outcome categories, never secrets', () => {
+  it("reports why a check could not be completed, using only the adapter's own messages", async () => {
+    const { createPaystackProvider } = await import('../../supabase/functions/_shared/providers/paystack.ts');
+    // Member C's seeded pending attempt belongs to the 'paystack' provider.
+    const [c] = await db.q<{ provider: string }>(owner, 'select provider from public.payment_attempts where member_id = $1', [MEMBER.C]);
+    const run = (provider: unknown) => reconcileAttempts({ serviceRpc: pgRpc(db, service), providers: { [c.provider]: provider as never }, olderThanSeconds: 0 });
+
+    const missing = await run(createPaystackProvider({ secretKey: '' }));
+    expect(missing.outcomes).toEqual(['provider-not-ready: PAYSTACK_SECRET_KEY is not set.']);
+
+    const rejected = await run(createPaystackProvider({ secretKey: 'sk_test_not_a_real_key_123', fetch: async () => new Response('{}', { status: 401 }) }));
+    expect(rejected.outcomes).toEqual(['provider-not-ready: Paystack rejected the secret key.']);
+    expect(JSON.stringify(rejected.outcomes)).not.toContain('sk_test_');
+
+    const odd = await run(createPaystackProvider({ secretKey: 'sk_test_not_a_real_key_123', fetch: async () => new Response(JSON.stringify({ status: false, message: 'Transaction reference not found' }), { status: 400 }) }));
+    expect(odd.outcomes).toEqual(['provider-unavailable: Paystack verification returned an unexpected answer (HTTP 400)']);
+
+    const notFound = await run(createPaystackProvider({ secretKey: 'sk_test_not_a_real_key_123', fetch: async () => new Response(JSON.stringify({ status: false }), { status: 404 }) }));
+    expect(notFound.outcomes).toEqual(['status-updated']);
+    const [after] = await db.q<{ status: string; last_provider_status: string }>(owner, 'select status, last_provider_status from public.payment_attempts where member_id = $1', [MEMBER.C]);
+    expect(after).toEqual({ status: 'pending', last_provider_status: 'not-found' });
+
+    expect(countOutcomes(['status-updated', 'provider-not-ready: x', 'status-updated'])).toEqual({ 'status-updated': 2, 'provider-not-ready: x': 1 });
   });
 });

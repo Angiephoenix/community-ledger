@@ -1,7 +1,7 @@
 import { withSupabase, type SupabaseContext } from '@supabase/server';
 import { dispatchAnalytics } from '../_shared/analytics.ts';
 import { json } from '../_shared/http.ts';
-import { processProviderEvents, reconcileAttempts } from '../_shared/process.ts';
+import { countOutcomes, processProviderEvents, reconcileAttempts } from '../_shared/process.ts';
 import type { PaymentProvider, Rpc } from '../_shared/types.ts';
 
 export interface WorkerFunctionOptions {
@@ -27,6 +27,6 @@ export function createWorkerFunction(o: WorkerFunctionOptions) {
       status: 'failed' as const,
       count: 0,
     }));
-    return json({ events, reconciled: { checked: reconciled.checked }, analytics: { status: analytics.status, count: analytics.count } });
+    return json({ events, reconciled: { checked: reconciled.checked, outcomes: countOutcomes(reconciled.outcomes) }, analytics: { status: analytics.status, count: analytics.count } });
   });
 }
