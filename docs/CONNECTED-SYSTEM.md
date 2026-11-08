@@ -346,6 +346,12 @@ default. `--anon` runs only the anonymous part, which needs no sign-in.
 Output is results and counts only; passwords and session tokens are never
 printed or saved.
 
+Run it directly in a terminal: it refuses to read passwords from a pipe. Each
+prompt shows `<Account> email:` (what you type is shown) and then
+`<Account> password (typing is hidden):` (nothing is shown, not even dots;
+Backspace and Ctrl-U work). Ctrl-C at any time, or Ctrl-D on an empty prompt,
+stops the run with exit code 130 and gives the terminal back.
+
 ## 6. Milestone 2 completion criteria
 
 Milestone 2 is complete only when **every** item below has been verified

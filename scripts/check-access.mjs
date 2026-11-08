@@ -23,13 +23,16 @@
 // session tokens stay in memory: nothing is written to disk, and the output
 // shows only results, counts and error codes.
 //
+// Needs an interactive terminal unless --anon is given (passwords are never
+// read from a pipe or file).
+//
 // Exit codes: 0 all passed; 1 a check failed; 3 incomplete (some checks were
-// inconclusive or skipped); 2 configuration error.
+// inconclusive or skipped); 2 configuration error; 130 cancelled at a prompt
+// (Ctrl-C, Ctrl-D or end of input).
 import { readFileSync, existsSync } from 'node:fs';
-import { createInterface } from 'node:readline';
-import { Writable } from 'node:stream';
 import { createClient } from '@supabase/supabase-js';
 import { runChecks } from './access-check-lib.mjs';
+import { createPrompter, PromptCancelled } from './tty-prompt.mjs';
 
 function loadEnvLocal() {
   const out = {};
@@ -61,15 +64,20 @@ for (const a of args) {
   }
 }
 
-const muted = new Writable({ write: (_c, _e, cb) => cb() });
-async function ask(question, hidden = false) {
-  process.stdout.write(question);
-  const rl = createInterface({ input: process.stdin, output: hidden ? muted : process.stdout, terminal: true });
-  const answer = await new Promise((resolve) => rl.question('', resolve));
-  rl.close();
-  if (hidden) process.stdout.write('\n');
-  return answer.trim();
+if (!args.has('--anon') && !process.stdin.isTTY) {
+  console.error('This check asks for passwords, so it needs an interactive terminal. Run it directly in a terminal (not piped).');
+  process.exit(2);
 }
+function cancelled(message) {
+  restoreTerminal();
+  console.log(`\n${message} The run stopped; the results above are incomplete.`);
+  process.exit(130);
+}
+const prompter = createPrompter({ onInterrupt: () => cancelled('Cancelled (Ctrl-C).') });
+const restoreTerminal = () => prompter.close();
+process.on('exit', restoreTerminal);
+process.on('SIGINT', () => cancelled('Cancelled.'));
+process.on('SIGTERM', () => cancelled('Stopped.'));
 
 const networkError = (e) => ({ data: null, error: { message: e instanceof Error ? e.message : 'network error', code: '' }, status: 0 });
 
@@ -128,8 +136,8 @@ const client = () => createClient(URL_, KEY, { auth: { persistSession: false, au
 
 async function signIn(label) {
   console.log('');
-  const email = await ask(`${label} email: `);
-  const password = await ask(`${label} password (hidden): `, true);
+  const email = (await prompter.ask(`${label} email: `)).trim();
+  const password = await prompter.ask(`${label} password (typing is hidden): `, { hidden: true });
   const sb = client();
   try {
     const { error } = await sb.auth.signInWithPassword({ email, password });
@@ -144,12 +152,21 @@ console.log(`Access checks against ${new URL(URL_).host} (test project). Output 
 if (args.has('--include-mutating-probes')) {
   console.log('Including probes that would change data if authorization were broken.');
 }
-const results = await runChecks({
-  anon: adapter(client()),
-  signIn,
-  anonOnly: args.has('--anon'),
-  includeMutating: args.has('--include-mutating-probes'),
-  log: (line) => console.log(line),
-});
+let results;
+try {
+  results = await runChecks({
+    anon: adapter(client()),
+    signIn,
+    anonOnly: args.has('--anon'),
+    includeMutating: args.has('--include-mutating-probes'),
+    log: (line) => console.log(line),
+  });
+} catch (e) {
+  restoreTerminal();
+  if (e instanceof PromptCancelled) cancelled(e.message);
+  console.error(`\nThe checker stopped unexpectedly: ${e instanceof Error ? e.message : 'unknown error'}`);
+  process.exit(3);
+}
+restoreTerminal();
 console.log(`\n${results.summary()}`);
 process.exit(results.exitCode());
