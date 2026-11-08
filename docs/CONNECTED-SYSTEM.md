@@ -365,7 +365,10 @@ isolation could not be shown live because the table is empty, and probes that
 could change data were not run live); checks 4 to 7 have evidence from
 Member A's hosted Paystack test payment (acknowledgement to Paystack
 inferred, not read from Paystack's log); check 10 is verified (PostHog
-verifier `verified` on 8 November); checks 8 and 9 are not yet done. Local tests,
+verifier `verified` on 8 November); check 9 is verified (declined and
+closed checkouts credited nothing); check 8 is partly verified (excess credit
+and a repeated return confirmation verified live; webhook redelivery and a
+second Paystack verification have no live evidence). Local tests,
 simulated provider responses and the analytics verdict on their own are not
 enough.
 
