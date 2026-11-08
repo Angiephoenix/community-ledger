@@ -32,7 +32,7 @@ Not found in any source I could read: the complete list of Paystack verify `stat
 | Area | Tested locally | Externally verified | Blocked or not done |
 | --- | --- | --- | --- |
 | Migrations and seed | Applied to a fresh PostgreSQL 16 on every test run | Yes: all five migrations and the seed applied to `community-ledger-test` (Postgres 17); see the log | — |
-| Access control (grants, RLS, functions, views) | Yes, with a shim for Supabase's roles, `auth.uid()` and default grants | Partly: anonymous requests through the live API (38/38 refused or empty) | Member and officer sessions: `scripts/check-access.mjs`, run by Angie (passwords stay on her computer) |
+| Access control (grants, RLS, functions, views) | Yes, with a shim for Supabase's roles, `auth.uid()` and default grants | Largely: Angie's live run of `scripts/check-access.mjs` with all five sign-in sessions (8 November: 222 passed, 0 failed, 4 inconclusive, 0 skipped) | Adjustment isolation live (the table is empty; covered locally with a populated fixture); probes excluded from the live run (see step 12) |
 | Payment pipeline (attempts, inbox, processing, posting, retries, reconciliation, mismatch holds) | Yes, real database plus a fake provider, and the real Paystack adapter against **simulated** Paystack HTTP | No | Paystack test key |
 | Edge Function HTTP handlers | Yes: run under Deno 2.9.6 with the real `@supabase/server` auth gate and test-only keys | No | Supabase project |
 | Supabase gateway (`verify_jwt` per function) | `config.toml` validated by the official CLI | Partly (check 3); see the log | Member-JWT requests are covered by the access checker |
@@ -357,11 +357,12 @@ stops the run with exit code 130 and gives the terminal back.
 Milestone 2 is complete only when **every** item below has been verified
 against the real test projects and the evidence recorded. Progress and
 evidence are kept in [TEST-PROJECT-LOG.md](TEST-PROJECT-LOG.md). As of
-1 November: migrations, seed, auth settings and the four functions are in
+8 November: migrations, seed, auth settings and the four functions are in
 place on `community-ledger-test`; check 3 is verified; check 1 is verified
 manually by Angie except for the unlinked-account screen; check 2 is verified
-for anonymous requests only (member and officer sessions pending); checks 4 to
-10 are not yet done. Local tests,
+live with genuine sessions except for its recorded limitations (adjustment
+isolation could not be shown live because the table is empty, and probes that
+could change data were not run live); checks 4 to 10 are not yet done. Local tests,
 simulated provider responses and the analytics verdict on their own are not
 enough.
 

@@ -226,3 +226,51 @@ describe('claim functions (not probed by the live checker)', () => {
     expect(rows.map((r) => r.fn)).toEqual(expect.arrayContaining(['server_claim_provider_events(integer,integer)', 'server_claim_analytics_events(integer,integer)']));
   });
 });
+
+describe('adjustments are isolated per member (populated fixture)', () => {
+  // The seed and the live test project have no adjustments, so the live access
+  // checker reports this table as inconclusive. Here an officer adds
+  // adjustments to Members A, B and C (local database only), then each member
+  // reads the table in full and by another member's charge id.
+  let fx: TestDb;
+  const ids: Record<'A' | 'B' | 'C', string> = { A: '', B: '', C: '' };
+  beforeAll(async () => {
+    fx = await freshDb();
+    for (const k of ['A', 'B', 'C'] as const) {
+      const [c] = await fx.q<{ id: string }>({ kind: 'owner' }, `select id from public.charges where member_id = $1 and title like 'Community project levy%'`, [MEMBER[k]]);
+      const [r] = await fx.q<{ id: string }>(officer(fx), `select public.add_adjustment($1, 100000, $2) as id`, [c.id, `Fictional correction for Member ${k}`]);
+      ids[k] = r.id;
+    }
+  });
+  afterAll(async () => { await fx?.close(); });
+
+  it('the officer sees every adjustment', async () => {
+    const rows = await fx.q<{ id: string }>(officer(fx), 'select id from public.adjustments');
+    expect(new Set(rows.map((r) => r.id))).toEqual(new Set(Object.values(ids)));
+  });
+
+  it.each(['A', 'B', 'C', 'D'] as const)('Member %s sees only adjustments on their own charges', async (k) => {
+    const who = member(fx, k);
+    const rows = await fx.q<{ id: string; owner: string }>(who, `
+      select a.id, (select c.member_id from public.charges c where c.id = a.charge_id) as owner from public.adjustments a`);
+    expect(rows.map((r) => r.id)).toEqual(k === 'D' ? [] : [ids[k]]);
+    // Even the charge lookup inside the query is filtered: no row points at someone else.
+    for (const r of rows) expect(r.owner).toBe(MEMBER[k]);
+    for (const other of (['A', 'B', 'C'] as const).filter((o) => o !== k)) {
+      expect(await fx.q(who, 'select * from public.adjustments where id = $1', [ids[other]]), `Member ${other}'s adjustment by id`).toEqual([]);
+      const [c] = await fx.q<{ charge_id: string }>({ kind: 'owner' }, 'select charge_id from public.adjustments where id = $1', [ids[other]]);
+      expect(await fx.q(who, 'select * from public.adjustments where charge_id = $1', [c.charge_id]), `by Member ${other}'s charge`).toEqual([]);
+    }
+  });
+
+  it("an adjustment changes only its own member's balance as that member sees it", async () => {
+    const [b] = await fx.q<{ outstanding_kobo: string }>(member(fx, 'D'), 'select outstanding_kobo from public.member_balances');
+    expect(Number(b.outstanding_kobo)).toBe(0);
+    const [a] = await fx.q<{ n: string }>(member(fx, 'A'), `select count(*) as n from public.charge_balances where member_id <> $1`, [MEMBER.A]);
+    expect(Number(a.n)).toBe(0);
+  });
+
+  it('anonymous requests cannot read adjustments', async () => {
+    await denied(fx.q(anon, 'select * from public.adjustments'));
+  });
+});
