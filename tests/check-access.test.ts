@@ -52,6 +52,7 @@ interface Faults {
   /** RPC name -> response (e.g. a validation error meaning authorization is missing). */
   rpc?: Record<string, Res>;
   officerSignIn?: 'refused' | 'network';
+  unlinkedSignIn?: 'refused';
   /** Called before the final officer re-read. */
   beforeFinal?: (rows: Record<string, Row[]>) => void;
   finalRead?: Res;
@@ -71,8 +72,8 @@ function fakeApi(f: Faults = {}) {
     'payment_attempt_charges', 'charge_balances', 'member_balances', 'payment_attempt_overview']);
   let officerReads = 0;
 
-  function client(who: 'anon' | 'officer' | keyof typeof MEMBERS) {
-    const memberId = who === 'anon' || who === 'officer' ? null : MEMBERS[who];
+  function client(who: 'anon' | 'officer' | 'unlinked' | keyof typeof MEMBERS) {
+    const memberId = who === 'anon' || who === 'officer' || who === 'unlinked' ? null : MEMBERS[who];
     return {
       async select(table: string, o: { eq?: [string, unknown] } = {}): Promise<Res> {
         calls.push({ who, kind: 'select', name: table });
@@ -85,6 +86,8 @@ function fakeApi(f: Faults = {}) {
         let out = rows[table] ?? [];
         if (who !== 'officer') {
           if (OFFICER_ONLY.includes(table)) out = [];
+          // Like the real policies: with no member link, shared tables are hidden too.
+          else if (who === 'unlinked' && !(f.leak ?? []).includes(table)) out = [];
           else if (memberTables.has(table) && !(f.leak ?? []).includes(table)) out = out.filter((r) => ownerOf(table, r) === memberId);
         }
         if (o.eq) out = out.filter((r) => r[o.eq![0]] === o.eq![1]);
@@ -121,6 +124,7 @@ function fakeApi(f: Faults = {}) {
       if (f.officerSignIn === 'network') return { error: 'network error' };
       return { client: client('officer') };
     }
+    if (label === 'Unlinked account') return f.unlinkedSignIn === 'refused' ? { error: 'sign-in refused (400 invalid_credentials)' } : { client: client('unlinked') };
     return { client: client(label.replace('Member ', '') as 'A') };
   };
   return { anon: client('anon'), signIn, calls, rows };
@@ -287,5 +291,32 @@ describe('runChecks', () => {
     const empty = await runChecks({ ...fakeApi({ select: { tasks: { data: [], error: null, status: 200 } } }), anonOnly: true });
     expect(statusOf(empty, 'anonymous', 'read tasks')).toBe('INCONCLUSIVE');
     expect(empty.exitCode()).toBe(3);
+  });
+
+  it('--unlinked: an account with no member link reads nothing and is refused everything', async () => {
+    const api = fakeApi();
+    api.rows.adjustments.push({ id: 'adj-b', charge_id: chargeId('b', 2) });
+    const R = await runChecks({ ...api, unlinkedOnly: true });
+    expect(R.counts()).toMatchObject({ FAIL: 0, INCONCLUSIVE: 0, SKIPPED: 0 });
+    expect(statusOf(R, 'Unlinked', 'whoami: no member link, not an officer')).toBe('PASS');
+    expect(statusOf(R, 'Unlinked', 'read dues_rules')).toBe('PASS');
+    expect(statusOf(R, 'Unlinked', 'start_payment_attempt refused')).toBe('PASS');
+    expect(statusOf(R, 'Officer', 'records unchanged by the checks')).toBe('PASS');
+    // Only the officer and the unlinked account sign in; no member, no anonymous checks.
+    expect(api.calls.filter((c) => c.kind === 'signin').map((c) => c.name)).toEqual(['Officer', 'Unlinked account']);
+    expect(api.calls.some((c) => c.who === 'anon')).toBe(false);
+    for (const n of ['report_discrepancy', 'create-checkout', 'payment-return', 'process-payments']) expect(api.calls.map((c) => c.name)).not.toContain(n);
+    expect(R.exitCode()).toBe(0);
+  });
+
+  it('--unlinked: a visible row fails, and a refused officer sign-in skips the account', async () => {
+    const leak = await runChecks({ ...fakeApi({ leak: ['dues_rules'] }), unlinkedOnly: true });
+    expect(statusOf(leak, 'Unlinked', 'read dues_rules')).toBe('FAIL');
+    expect(leak.exitCode()).toBe(1);
+    const api = fakeApi({ officerSignIn: 'refused' });
+    const skipped = await runChecks({ ...api, unlinkedOnly: true });
+    expect(statusOf(skipped, 'Unlinked', 'all unlinked-account checks')).toBe('SKIPPED');
+    expect(api.calls.filter((c) => c.kind === 'signin').map((c) => c.name)).toEqual(['Officer']);
+    expect(skipped.exitCode()).toBe(1);
   });
 });

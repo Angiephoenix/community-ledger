@@ -343,6 +343,11 @@ the authorization they test were broken**: starting a payment or a checkout for
 another member's charge, asking `payment-return` about another member's
 payment, and calling the payment worker with a member session. They are off by
 default. `--anon` runs only the anonymous part, which needs no sign-in.
+`--unlinked` signs in the officer (to see what exists) and then an account
+with no member link and no officer role, and checks with that account's own
+session that every table and view is refused or empty and every privileged
+operation refused (`report_discrepancy` and the checkout probes are not
+called).
 Output is results and counts only; passwords and session tokens are never
 printed or saved.
 

@@ -9,6 +9,7 @@ import { chargeOutstanding, chargesFor, memberSummary } from '../domain/ledger';
 import { createLocalAnalytics, createPostHogCaptureAdapter, type Surface } from '../adapters/analytics';
 import { appMode, connectedConfig, connectedConfigured } from '../config/mode';
 import { createPaymentSimulator } from '../adapters/paymentProvider';
+import { createReturnChecker, onRestoredPage, sessionCheckout, type ReturnStatus } from '../connected/returnCheck';
 
 // One shared store for every view. Member and officer screens read the same
 // LedgerState.
@@ -40,7 +41,7 @@ export interface Connection {
   /** Figures that differ between this screen and the database's own totals. */
   mismatches?: string[];
   serverChecks?: { label: string; ok: boolean }[];
-  returnStatus?: 'checking' | 'confirmed' | 'pending' | 'failed' | 'abandoned' | 'held' | 'checking-unavailable' | 'not-found' | 'started';
+  returnStatus?: ReturnStatus;
 }
 
 interface AppState {
@@ -284,11 +285,8 @@ export const actions = {
     try {
       const r = await (await srv()).startHostedCheckout(chargeIds, payAgain);
       if (r.ok && r.authorizationUrl && r.reference) {
-        try {
-          sessionStorage.setItem(CHECKOUT_KEY, r.reference);
-        } catch {
-          /* the return page can still use the reference in the URL */
-        }
+        const { data } = await (await srv()).supabase().auth.getSession();
+        checkoutStore().save(r.reference, data.session?.user.id ?? null);
         window.location.assign(r.authorizationUrl);
         return;
       }
@@ -299,6 +297,7 @@ export const actions = {
     }
   },
   async signIn(email: string, password: string) {
+    returnChecker.invalidate();
     set({ connection: { status: 'loading' } });
     try {
       const { error } = await (await srv()).supabase().auth.signInWithPassword({ email: email.trim(), password });
@@ -313,11 +312,17 @@ export const actions = {
     }
   },
   async signOut() {
+    returnChecker.invalidate();
+    checkoutStore().clear();
     await (await srv()).supabase().auth.signOut().catch(() => {});
     set({ ledger: emptyState(), connection: { status: 'signed-out' } });
   },
   retryConnection() {
     void startConnected();
+  },
+  /** Connected: ask the server again about the checkout this tab opened. */
+  recheckReturnedPayment() {
+    if (state.mode === 'connected' && state.connection.status === 'ready') void returnChecker.run();
   },
 
   setClock(iso: string) {
@@ -342,7 +347,6 @@ export const actions = {
 // Loaded only in connected mode, so the demo build carries no Supabase code.
 const srv = () => import('../connected/server');
 
-const CHECKOUT_KEY = 'community-ledger.checkout-reference';
 const UNREACHABLE = "We can't reach Community Ledger right now. Nothing has been changed. Please try again.";
 
 async function serverAction(fn: () => Promise<string>): Promise<boolean> {
@@ -393,34 +397,52 @@ async function refresh() {
   }
 }
 
-/** After returning from the hosted checkout: ask the server to verify with the provider. */
-async function handleReturnFromCheckout() {
-  const url = new URL(window.location.href);
-  let reference: string | null = null;
+/**
+ * The checkout this tab opened. The provider's return address may also carry
+ * the reference; it is read once and removed from the address bar straight away.
+ */
+function checkoutStore() {
+  let urlReference: string | null = null;
   try {
-    reference = sessionStorage.getItem(CHECKOUT_KEY);
-  } catch {
-    /* fall back to the URL */
-  }
-  reference = reference ?? url.searchParams.get('reference');
-  if (!reference && url.searchParams.get('payment') !== 'return') return;
-  // Remove the reference from the address bar and history straight away.
-  window.history.replaceState(null, '', url.pathname + url.hash);
-  if (!reference) return;
-  set({ connection: { ...state.connection, returnStatus: 'checking' } });
-  try {
-    const r = await (await srv()).checkReturnedPayment(reference);
-    try {
-      sessionStorage.removeItem(CHECKOUT_KEY);
-    } catch {
-      /* ignore */
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('payment') === 'return' || url.searchParams.has('reference')) {
+      urlReference = url.searchParams.get('reference');
+      window.history.replaceState(null, '', url.pathname + url.hash);
     }
-    await refresh();
-    set({ connection: { ...state.connection, returnStatus: (r.status as Connection['returnStatus']) ?? 'pending' } });
   } catch {
-    set({ connection: { ...state.connection, returnStatus: 'checking-unavailable' } });
+    /* no usable address */
   }
+  let storage: Storage | null = null;
+  try {
+    storage = window.sessionStorage;
+  } catch {
+    storage = null;
+  }
+  return sessionCheckout(storage, urlReference);
 }
+
+/** After returning from the hosted checkout: the server asks the provider; its answer chooses the message. */
+const returnChecker = createReturnChecker({
+  load: () => {
+    // Keep a reference that arrived only in the address, so a check that could
+    // not be completed can be retried after the address has been cleaned.
+    const s = checkoutStore();
+    const saved = s.load();
+    if (saved) s.save(saved.reference, saved.userId);
+    return saved;
+  },
+  clear: () => checkoutStore().clear(),
+  currentUserId: async () => {
+    const { data } = await (await srv()).supabase().auth.getSession();
+    return data.session?.user.id ?? null;
+  },
+  verify: async (reference) => (await srv()).checkReturnedPayment(reference),
+  refresh: () => refresh(),
+  show: (returnStatus) => {
+    if (state.connection.status !== 'ready') return;
+    set({ connection: { ...state.connection, returnStatus } });
+  },
+});
 
 async function startConnected() {
   if (!connectedConfigured) return;
@@ -432,13 +454,22 @@ async function startConnected() {
       return;
     }
     await refresh();
-    if (state.connection.status === 'ready') await handleReturnFromCheckout();
+    if (state.connection.status === 'ready') await returnChecker.run();
   } catch {
     set({ connection: { status: 'error', message: UNREACHABLE } });
   }
 }
 
-if (appMode === 'connected') void startConnected();
+if (appMode === 'connected') {
+  void startConnected();
+  // A page restored from the back/forward cache does not start up again (for
+  // example after leaving the provider's checkout through browser history).
+  if (typeof window !== 'undefined') {
+    onRestoredPage(window, () => {
+      if (state.connection.status === 'ready') void returnChecker.run();
+    });
+  }
+}
 
 function subscribe(l: () => void) {
   listeners.add(l);

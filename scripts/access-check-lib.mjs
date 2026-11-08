@@ -356,6 +356,53 @@ export async function checkMember(R, k, client, baseline) {
   await privilegedAndWrites(R, who, client);
 }
 
+/**
+ * A signed-in account with no member link and no officer role. Every table and
+ * view must be refused or empty (with rows existing to hide), and privileged
+ * operations refused. Only calls already used for members (non-mutating even
+ * if authorization were broken) are made; report_discrepancy and the checkout
+ * probes are not called.
+ */
+export async function checkUnlinked(R, client, baseline) {
+  const who = 'Unlinked';
+  const me = await client.rpc('whoami', {});
+  const c = classify(me);
+  if (c.kind !== 'ok') R.inconclusive(who, 'whoami: no member link, not an officer', c.detail);
+  else if (me.data?.member_id == null && me.data?.is_officer === false) R.pass(who, 'whoami: no member link, not an officer');
+  else R.fail(who, 'whoami: no member link, not an officer', me.data?.is_officer ? 'is an officer' : 'linked to a member');
+  for (const t of ALL_TABLES) {
+    judgeHidden(R, who, `read ${t}`, await client.select(t, { columns: '*', limit: 50 }), baseline ? (baseline.rows[t] ?? []).length : null);
+  }
+  for (const { table, column } of TARGETED) {
+    const name = `cannot read members' ${table} by id`;
+    let visible = 0; let problem = null; let existing = 0;
+    for (const id of Object.values(MEMBERS)) {
+      existing += (baseline?.rows[table] ?? []).filter((r) => r[column] === id).length;
+      const res = await client.select(table, { columns: column, eq: [column, id] });
+      const rc = classify(res);
+      if (rc.kind === 'denied') continue;
+      if (rc.kind !== 'ok') { problem = rc.detail; continue; }
+      visible += Array.isArray(res.data) ? res.data.length : 0;
+    }
+    if (visible > 0) R.fail(who, name, `${visible} rows visible`);
+    else if (problem) R.inconclusive(who, name, problem);
+    else if (existing === 0) R.inconclusive(who, name, 'no rows exist to hide');
+    else R.pass(who, name, `0 of ${existing} rows`);
+  }
+  const someone = baseline?.rows.payment_attempts_full?.[0];
+  if (!someone) R.inconclusive(who, "my_payment_attempt hides members' payments", 'no payment exists');
+  else {
+    const res = await client.rpc('my_payment_attempt', { p_reference: someone.reference });
+    const rc = classify(res);
+    if (rc.kind === 'denied' || (rc.kind === 'ok' && res.data == null)) R.pass(who, "my_payment_attempt hides members' payments");
+    else if (rc.kind === 'ok') R.fail(who, "my_payment_attempt hides members' payments", 'returned data');
+    else R.inconclusive(who, "my_payment_attempt hides members' payments", rc.detail);
+  }
+  // Not a member, so this is rejected before any insert.
+  judgeRefused(R, who, 'start_payment_attempt refused', await client.rpc('start_payment_attempt', { p_charge_ids: [NOBODY] }));
+  await privilegedAndWrites(R, who, client);
+}
+
 /** Opt-in only. See MUTATING_PROBES. */
 export async function mutatingProbes(R, k, client, baseline) {
   const who = `Member ${k}`;
@@ -384,7 +431,7 @@ export async function mutatingProbes(R, k, client, baseline) {
  * The whole run. `signIn(label)` returns { client } or { error }.
  * Order: officer sign-in and baseline first; members only after.
  */
-export async function runChecks({ anon, signIn, anonOnly = false, includeMutating = false, log = () => {} }) {
+export async function runChecks({ anon, signIn, anonOnly = false, unlinkedOnly = false, includeMutating = false, log = () => {} }) {
   const R = new Results(log);
   if (!includeMutating) R.notRun.push(...MUTATING_PROBES);
   R.notRun.push(`${NOT_PROBED_LIVE.join(', ')}: not called live; covered by the database tests`);
@@ -406,6 +453,23 @@ export async function runChecks({ anon, signIn, anonOnly = false, includeMutatin
   }
   const before = baseline ? fingerprint(baseline) : null;
 
+  if (unlinkedOnly) {
+    if (!baseline) {
+      R.skip('Unlinked', 'all unlinked-account checks', 'officer sign-in or baseline reads did not succeed');
+    } else {
+      const u = await signIn('Unlinked account');
+      if (!u.client) { R.fail('Unlinked', 'sign in', u.error ?? 'failed'); R.skip('Unlinked', 'all unlinked-account checks', 'not signed in'); }
+      else {
+        R.pass('Unlinked', 'sign in');
+        await checkUnlinked(R, u.client, baseline);
+        await u.client.signOut?.();
+      }
+    }
+    await finalComparison(R, officer, before);
+    await officer?.signOut?.();
+    return R;
+  }
+
   await checkAnonymous(R, anon, baseline);
   if (officer) await checkOfficer(R, officer);
 
@@ -423,6 +487,12 @@ export async function runChecks({ anon, signIn, anonOnly = false, includeMutatin
     await s.client.signOut?.();
   }
 
+  await finalComparison(R, officer, before);
+  await officer?.signOut?.();
+  return R;
+}
+
+async function finalComparison(R, officer, before) {
   if (officer && before) {
     const after = await readBaseline(new Results(), officer);
     if (!after) R.inconclusive('Officer', 'records unchanged by the checks', 'could not re-read the records');
@@ -431,6 +501,4 @@ export async function runChecks({ anon, signIn, anonOnly = false, includeMutatin
   } else {
     R.skip('Officer', 'records unchanged by the checks', 'no baseline');
   }
-  await officer?.signOut?.();
-  return R;
 }

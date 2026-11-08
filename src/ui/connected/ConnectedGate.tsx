@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { brand } from '../../config/brand';
 import { modeLabels } from '../../config/mode';
 import { actions, type Connection } from '../../state/store';
+import { canCheckAgain } from '../../connected/returnCheck';
 import { Logo, Sculpture } from '../common/Artwork';
 import { IconAlert, IconInfo } from '../common/Icons';
 
@@ -103,11 +104,11 @@ const returnCopy: Record<NonNullable<Connection['returnStatus']>, { tone: 'info'
   checking: { tone: 'pending', text: 'Checking your payment with the payment provider…' },
   confirmed: { tone: 'good', text: 'Payment received. Your dues and receipt are updated.' },
   pending: { tone: 'pending', text: 'We’re still checking this payment. Nothing has been taken off your balance yet.' },
-  started: { tone: 'info', text: 'The payment wasn’t completed. Nothing was charged.' },
+  started: { tone: 'info', text: 'We don’t have a result for this checkout yet. Your balance changes only when a payment is confirmed.' },
   abandoned: { tone: 'info', text: 'The checkout was closed before payment. Nothing was charged.' },
   failed: { tone: 'warn', text: 'This payment didn’t go through. Your balance hasn’t changed.' },
   held: { tone: 'warn', text: 'This payment needs checking by an officer. It hasn’t been applied yet.' },
-  'checking-unavailable': { tone: 'pending', text: 'We couldn’t check the payment just now. We’ll keep checking; your balance updates once it’s confirmed.' },
+  'checking-unavailable': { tone: 'pending', text: 'We couldn’t check this payment just now. Your balance changes only when a payment is confirmed.' },
   'not-found': { tone: 'info', text: 'We couldn’t find that payment.' },
 };
 
@@ -117,6 +118,14 @@ export function ReturnNotice({ status }: { status: Connection['returnStatus'] })
   return (
     <p className={`notice page-notice ${c.tone === 'good' ? 'notice-good' : c.tone === 'warn' ? 'notice-warn' : c.tone === 'pending' ? 'notice-pending' : 'notice-info'}`} role="status">
       {c.text}
+      {canCheckAgain(status) && (
+        <>
+          {' '}
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => actions.recheckReturnedPayment()}>
+            Check again
+          </button>
+        </>
+      )}
     </p>
   );
 }

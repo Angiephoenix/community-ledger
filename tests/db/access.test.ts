@@ -274,3 +274,33 @@ describe('adjustments are isolated per member (populated fixture)', () => {
     await denied(fx.q(anon, 'select * from public.adjustments'));
   });
 });
+
+describe('a signed-in account with no member link and no officer role', () => {
+  // Local counterpart of `check-access.mjs --unlinked`. The 'stranger' test user
+  // is signed in but linked to no member and is not an officer (its metadata
+  // claims officer, which must not count).
+  const S = () => ({ kind: 'user' as const, userId: db.users.stranger, metadata: { role: 'officer', is_officer: true } });
+
+  it('whoami reports no member and no officer role', async () => {
+    const [r] = await db.q<{ w: { member_id: string | null; is_officer: boolean } }>(S(), 'select public.whoami() as w');
+    expect(r.w).toMatchObject({ member_id: null, is_officer: false });
+  });
+
+  it('reads nothing from any table or view, although rows exist', async () => {
+    for (const t of PRIVATE_TABLES) {
+      const [n] = await db.q<{ n: string }>({ kind: 'owner' }, `select count(*) as n from public.${t}`);
+      const rows = await db.q(S(), `select * from public.${t}`);
+      expect(rows, t).toEqual([]);
+      if (t !== 'adjustments') expect(Number(n.n), `${t} has rows to hide`).toBeGreaterThan(0);
+    }
+  });
+
+  it('cannot pay, report a problem or look up a payment', async () => {
+    const [c] = await db.q<{ id: string }>({ kind: 'owner' }, `select id from public.charges limit 1`);
+    await denied(db.q(S(), `select public.start_payment_attempt(array[$1]::uuid[])`, [c.id]));
+    await denied(db.q(S(), `select public.report_discrepancy('x')`));
+    const [ref] = await db.q<{ reference: string }>({ kind: 'owner' }, `select reference from public.payment_attempts limit 1`);
+    const [r] = await db.q<{ a: unknown }>(S(), `select public.my_payment_attempt($1) as a`, [ref.reference]);
+    expect(r.a).toBeNull();
+  });
+});

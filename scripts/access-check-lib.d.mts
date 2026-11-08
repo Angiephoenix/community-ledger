@@ -30,6 +30,7 @@ export function runChecks(o: {
   anon: Client;
   signIn: (label: string) => Promise<{ client?: Client; error?: string }>;
   anonOnly?: boolean;
+  unlinkedOnly?: boolean;
   includeMutating?: boolean;
   log?: (line: string) => void;
 }): Promise<Results>;

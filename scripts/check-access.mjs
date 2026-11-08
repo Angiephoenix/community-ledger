@@ -3,6 +3,7 @@
 //
 //   node scripts/check-access.mjs                          officer, members A-D and anonymous
 //   node scripts/check-access.mjs --anon                   anonymous checks only (no sign-in)
+//   node scripts/check-access.mjs --unlinked               officer baseline, then an account with no member link or officer role
 //   node scripts/check-access.mjs --include-mutating-probes   also the probes listed below
 //
 // The default run is NOT purely read-only: it calls officer and server
@@ -58,7 +59,7 @@ if (!KEY.startsWith('sb_publishable_')) {
 }
 const args = new Set(process.argv.slice(2));
 for (const a of args) {
-  if (!['--anon', '--include-mutating-probes'].includes(a)) {
+  if (!['--anon', '--unlinked', '--include-mutating-probes'].includes(a)) {
     console.error(`Unknown option ${a}`);
     process.exit(2);
   }
@@ -158,6 +159,7 @@ try {
     anon: adapter(client()),
     signIn,
     anonOnly: args.has('--anon'),
+  unlinkedOnly: args.has('--unlinked'),
     includeMutating: args.has('--include-mutating-probes'),
     log: (line) => console.log(line),
   });
