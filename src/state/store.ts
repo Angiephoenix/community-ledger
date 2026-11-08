@@ -10,6 +10,7 @@ import { createLocalAnalytics, createPostHogCaptureAdapter, type Surface } from 
 import { appMode, connectedConfig, connectedConfigured } from '../config/mode';
 import { createPaymentSimulator } from '../adapters/paymentProvider';
 import { createReturnChecker, onRestoredPage, sessionCheckout, type ReturnStatus } from '../connected/returnCheck';
+import { createAccountRefresh } from '../connected/accountRefresh';
 
 // One shared store for every view. Member and officer screens read the same
 // LedgerState.
@@ -297,10 +298,12 @@ export const actions = {
     }
   },
   async signIn(email: string, password: string) {
-    returnChecker.invalidate();
+    newAccount();
+    const gen = accountGeneration;
     set({ connection: { status: 'loading' } });
     try {
       const { error } = await (await srv()).supabase().auth.signInWithPassword({ email: email.trim(), password });
+      if (gen !== accountGeneration) return;
       if (error) {
         const unreachable = /fetch|network/i.test(error.message);
         set({ connection: { status: unreachable ? 'error' : 'signed-out', message: unreachable ? UNREACHABLE : 'That email and password did not match a test account.' } });
@@ -308,11 +311,11 @@ export const actions = {
       }
       await refresh();
     } catch {
-      set({ connection: { status: 'error', message: UNREACHABLE } });
+      if (gen === accountGeneration) set({ connection: { status: 'error', message: UNREACHABLE } });
     }
   },
   async signOut() {
-    returnChecker.invalidate();
+    newAccount();
     checkoutStore().clear();
     await (await srv()).supabase().auth.signOut().catch(() => {});
     set({ ledger: emptyState(), connection: { status: 'signed-out' } });
@@ -362,15 +365,26 @@ async function serverAction(fn: () => Promise<string>): Promise<boolean> {
   }
 }
 
+/** Changes whenever this tab signs in or out; results from an older value are dropped. */
+let accountGeneration = 0;
+function newAccount() {
+  accountGeneration += 1;
+  returnChecker.invalidate();
+}
+
 /** Loads the signed-in user's records and checks them against the database's own totals. */
-async function refresh() {
-  try {
-    const who = await (await srv()).whoami();
-    if (!who.memberId && !who.isOfficer) {
-      set({ ledger: emptyState(), connection: { status: 'unlinked' } });
-      return;
-    }
-    const snap = await (await srv()).loadSnapshot(who.isOfficer);
+const refresh = createAccountRefresh({
+  generation: () => accountGeneration,
+  sessionUser: async () => {
+    const { data } = await (await srv()).supabase().auth.getSession();
+    const u = data.session?.user;
+    return u ? { id: u.id, email: u.email ?? undefined } : null;
+  },
+  whoami: async () => (await srv()).whoami(),
+  loadSnapshot: async (isOfficer) => (await srv()).loadSnapshot(isOfficer),
+  onUnlinked: () => set({ ledger: emptyState(), connection: { status: 'unlinked' } }),
+  onError: () => set({ connection: { status: 'error', message: UNREACHABLE } }),
+  onReady: ({ who, snapshot: snap, email }) => {
     const mismatches: string[] = [];
     for (const b of snap.balances) {
       const mine = memberSummary(snap.ledger, b.memberId);
@@ -378,7 +392,6 @@ async function refresh() {
         mismatches.push(snap.ledger.members.find((m) => m.id === b.memberId)?.displayName ?? b.memberId);
       }
     }
-    const { data } = await (await srv()).supabase().auth.getSession();
     set({
       ledger: snap.ledger,
       view: who.isOfficer ? { role: 'officer', memberId: who.memberId ?? '' } : { role: 'member', memberId: who.memberId ?? '' },
@@ -386,16 +399,14 @@ async function refresh() {
         ...state.connection,
         status: 'ready',
         message: undefined,
-        email: data.session?.user.email,
+        email,
         isOfficer: who.isOfficer,
         mismatches,
         serverChecks: snap.report?.checks,
       },
     });
-  } catch {
-    set({ connection: { status: 'error', message: UNREACHABLE } });
-  }
-}
+  },
+});
 
 /**
  * The checkout this tab opened. The provider's return address may also carry
@@ -437,7 +448,9 @@ const returnChecker = createReturnChecker({
     return data.session?.user.id ?? null;
   },
   verify: async (reference) => (await srv()).checkReturnedPayment(reference),
-  refresh: () => refresh(),
+  refresh: async () => {
+    await refresh();
+  },
   show: (returnStatus) => {
     if (state.connection.status !== 'ready') return;
     set({ connection: { ...state.connection, returnStatus } });
@@ -446,17 +459,19 @@ const returnChecker = createReturnChecker({
 
 async function startConnected() {
   if (!connectedConfigured) return;
+  const gen = accountGeneration;
   set({ connection: { status: 'loading' } });
   try {
     const { data, error } = await (await srv()).supabase().auth.getSession();
+    if (gen !== accountGeneration) return;
     if (error || !data.session) {
       set({ connection: { status: 'signed-out' } });
       return;
     }
     await refresh();
-    if (state.connection.status === 'ready') await returnChecker.run();
+    if (gen === accountGeneration && state.connection.status === 'ready') await returnChecker.run();
   } catch {
-    set({ connection: { status: 'error', message: UNREACHABLE } });
+    if (gen === accountGeneration) set({ connection: { status: 'error', message: UNREACHABLE } });
   }
 }
 

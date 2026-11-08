@@ -319,4 +319,15 @@ describe('runChecks', () => {
     expect(api.calls.filter((c) => c.kind === 'signin').map((c) => c.name)).toEqual(['Officer']);
     expect(skipped.exitCode()).toBe(1);
   });
+
+  it('--unlinked with an empty adjustments table (as on the live project): one honest INCONCLUSIVE, exit 3', async () => {
+    const R = await runChecks({ ...fakeApi(), unlinkedOnly: true }); // the fixture has no adjustments
+    const inconclusive = R.items.filter((i) => i.status === 'INCONCLUSIVE');
+    expect(inconclusive.map((i) => `${i.who}: ${i.name}`)).toEqual(['Unlinked: read adjustments']);
+    expect(inconclusive[0].detail).toBe('empty, but there are no rows to hide');
+    expect(R.counts()).toMatchObject({ FAIL: 0, SKIPPED: 0, INCONCLUSIVE: 1 });
+    expect(R.exitCode()).toBe(3);
+    expect(R.summary()).toMatch(/Result: INCOMPLETE/);
+  });
 });
+

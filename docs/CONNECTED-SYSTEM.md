@@ -347,7 +347,9 @@ default. `--anon` runs only the anonymous part, which needs no sign-in.
 with no member link and no officer role, and checks with that account's own
 session that every table and view is refused or empty and every privileged
 operation refused (`report_discrepancy` and the checkout probes are not
-called).
+called). A table with no rows at all cannot show that anything is hidden, so
+it is reported INCONCLUSIVE and the run ends INCOMPLETE (exit 3); on the test
+project the adjustments table is empty, so that is the expected result there.
 Output is results and counts only; passwords and session tokens are never
 printed or saved.
 
