@@ -5,8 +5,6 @@
 // TEST_USER_PASSWORD and TEST_USER_EMAIL_DOMAIN from the environment.
 // Never prints secret values.
 // Run only against a test project:  node scripts/create-test-users.mjs
-//
-// Not run in the build environment (no Supabase project was available).
 import { createClient } from '@supabase/supabase-js';
 
 const need = (k) => {

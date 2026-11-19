@@ -23,8 +23,6 @@ export const modeLabels =
     ? {
         notice: brand.testNotice,
         runNow: 'Run now · Test system',
-        // Checked against the test project's cron.job on 1 November 2026: the only
-        // schedule is the payment worker. Dues and reminders have none.
         runNowHelp:
           'Recurring dues and reminders do not run on a schedule in this test system. Run them here when you need them. Payment confirmations are handled separately by the server’s payment worker.',
         recordsLabel: 'Test system with fictional records',

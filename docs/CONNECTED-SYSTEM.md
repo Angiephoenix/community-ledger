@@ -1,46 +1,8 @@
-# Connected test system (milestone 2)
+# Connected test setup
 
-Status as of 1 November 2026 (updated after the network change). Everything here is for a **test** environment with
-fictional records, test keys and preview-only messages. No live keys, real
-members, messages or public deployment.
+Use a dedicated Supabase project with fictional records and a Paystack test account. Start with the [demo](../README.md#try-the-demo) to explore the interface without credentials. See the [test results](TEST-RESULTS.md) for the scenarios exercised against the hosted test services.
 
-**Milestone 2 is not complete.** It completes only when every item in
-section 6 has been verified against real test projects. The analytics verdict
-is one of those items, not a substitute for the others.
-
-## 1. Sources used
-
-| Source | Reachable from the build environment? | Used for |
-| --- | --- | --- |
-| paystack.com documentation | **No.** Allowed by the network since 1 November, but every page answers HTTP 403 with a Cloudflare bot challenge (`cf-mitigated: challenge`). Not circumvented | Replaced by the first-party sources below |
-| Paystack OpenAPI specification (`PaystackOSS/openapi`, `dist/paystack.yaml`, via raw.githubusercontent.com) | Yes | Base URL, bearer auth, initialise request and response (`amount` in the smallest unit, allowed `reference` characters), verify response fields (`id`, `domain`, `status`, `reference`, `amount`, `currency`, `paid_at`), 404 for unknown references |
-| Paystack CLI (`@paystack-oss/dev-cli`, published by infrastructure@paystack.com), read as text | Yes | Webhook signature: `x-paystack-signature` is the hex HMAC-SHA512 of the request body keyed with the secret key; `charge.success` sample payload; `test` and `live` domains |
-| api.paystack.co | Yes | Reached without a key: `401 {"code":"invalid_Key"}` as expected. No test-mode call yet (needs a test key) |
-| supabase.com documentation | Yes, read 1 November | Function configuration, function auth, secrets, scheduling, background tasks (section 5 updated to match) |
-| Supabase CLI 2.122.0 (official npm package `supabase`) | Yes | `config.toml` template and validation, every command in section 5 (checked with `--help`) |
-| `@supabase/server` 1.9.2 (official npm package, docs included) | Yes | Function authentication model, `verify_jwt` guidance, platform environment variables |
-| `@supabase/functions-js` 2.118.0 on jsr.io (official) | Yes | `EdgeRuntime.waitUntil` for background work after responding |
-| `@paystack/paystack-sdk` 1.2.2 (official npm package) | Yes | Test secret keys look like `sk_test_…`; the adapter refuses any other key |
-| posthog.com documentation | Yes | Capture API, event deduplication, funnels, person-less events, query API |
-| PostHog ingestion and app hosts (`eu.i.posthog.com`, `us.i.posthog.com`, `eu.posthog.com`, `us.posthog.com`) | Yes, since 1 November (connections succeed; nothing sent yet) | Sending and reading back test events once a test project exists |
-| Supabase Management API (`api.supabase.com`) | **No** | Needed by the CLI for `link`, `db push`, `secrets set` and `functions deploy` from this environment |
-
-Not found in any source I could read: the complete list of Paystack verify `status` values and Paystack's webhook IP addresses. The adapter credits only `status = "success"`; every other value leaves balances untouched. Authenticity rests on the signature, not on IP addresses.
-
-## 2. Status
-
-| Area | Tested locally | Externally verified | Blocked or not done |
-| --- | --- | --- | --- |
-| Migrations and seed | Applied to a fresh PostgreSQL 16 on every test run | Yes: all five migrations and the seed applied to `community-ledger-test` (Postgres 17); see the log | — |
-| Access control (grants, RLS, functions, views) | Yes, with a shim for Supabase's roles, `auth.uid()` and default grants | Largely: Angie's live run of `scripts/check-access.mjs` with all five sign-in sessions (8 November: 222 passed, 0 failed, 4 inconclusive, 0 skipped) | Adjustment isolation live (the table is empty; covered locally with a populated fixture); probes excluded from the live run (see step 12) |
-| Payment pipeline (attempts, inbox, processing, posting, retries, reconciliation, mismatch holds) | Yes, real database plus a fake provider, and the real Paystack adapter against **simulated** Paystack HTTP | No | Paystack test key |
-| Edge Function HTTP handlers | Yes: run under Deno 2.9.6 with the real `@supabase/server` auth gate and test-only keys | No | Supabase project |
-| Supabase gateway (`verify_jwt` per function) | `config.toml` validated by the official CLI | Partly (check 3); see the log | Member-JWT requests are covered by the access checker |
-| Paystack test mode | Adapter implemented from Paystack's OpenAPI spec and CLI; request building, response checks, signatures and the ledger pipeline tested with simulated HTTP | Only reachability (401 without a key) | A Paystack **test** secret key |
-| PostHog | Exact outbound payloads tested; `verify-posthog.mjs` verdicts tested end to end against a local stand-in | No | PostHog test project, and its ingestion and app hosts allowed here |
-| Sign-in screens | Sign-in, unreachable and unconfigured states in a browser | Yes, manually by Angie: Members A–D and the officer signed in and saw the expected pages and figures (screenshots, 1 November) | Unlinked-account screen (no unlinked test account exists) |
-
-### One open payment per charge (connected system)
+## Checkout behavior
 
 The database refuses a new payment for a charge while an earlier **submitted**
 payment for it is still being checked (inside the 48-hour reminder pause). Once
@@ -49,39 +11,13 @@ again, but only by choosing **Pay again** (`p_pay_again`); the screen explains
 that if both go through the extra is kept as credit for an officer to review.
 Starting a new checkout closes any older checkout for the same charges that was
 opened but never submitted. Attempts for one member are created one at a time.
-The standalone demo keeps its milestone 1 behaviour (paying again is allowed at
-any time and the excess becomes credit).
 
-Fake-provider and fake-network tests prove our own logic. They are not evidence
-about how Paystack or PostHog behave.
+## Payment flow
 
-## 3. How it fits together
-
-```
-Browser (signed-in member, publishable key + user JWT)
-  ├─ reads own rows through the Data API ── RLS filters every table and view
-  ├─ Pay ─► create-checkout          [platform JWT check ON + auth: 'user', project issuer]
-  │           ├─ start_payment_attempt()    as the member: own charges, amount from the database
-  │           ├─ provider: hosted checkout page (no card details touch our code)
-  │           └─ server_record_checkout_session()
-  └─ returns ─► payment-return        [platform JWT check ON + auth: 'user']
-                 └─ provider verify API ─► post only if verified (the redirect never credits)
-
-Provider ─► payment-webhook           [platform JWT check OFF; provider signature checked in code]
-              ├─ bad signature → 401, nothing stored
-              ├─ server_record_provider_event()   durable, deduplicated; failure → 500
-              ├─ 200 sent immediately after storing
-              └─ EdgeRuntime.waitUntil(process events)   background, after the response
-
-Scheduler ─► process-payments         [platform JWT check OFF; auth: 'secret:cron']
-              ├─ claim stored events (leases; a crashed run's events are retried)
-              ├─ provider verify API (status, reference, amount, currency, test environment)
-              ├─ server_post_verified_payment()  ONE transaction: payment, allocations,
-              │      receipt, reminder cancellation, tasks, audit, analytics row
-              ├─ mismatched reference → one durable Needs attention task, nothing credited
-              ├─ reconcile attempts whose webhook never arrived
-              └─ deliver queued analytics events to PostHog (retries; never touches payments)
-```
+1. The signed-in member reads their own records through the Supabase Data API. The checkout function starts a payment attempt for the selected charges and returns the Paystack test checkout URL.
+2. Paystack sends a signed webhook. The handler validates the signature, stores the event once, and acknowledges it before handing off background processing.
+3. The return handler can check the attempt with Paystack if it has yet to be resolved. The worker picks up stored events, retries unfinished work and reconciles attempts that need another check.
+4. Verified test payments post in one database transaction. A reference mismatch creates a review task. The same worker also delivers queued analytics events to PostHog if analytics is configured.
 
 ### Function authentication
 
@@ -94,7 +30,7 @@ Scheduler ─► process-payments         [platform JWT check OFF; auth: 'secret
 
 `verify_jwt = false` is set only where the function authenticates another way
 and checks that credential itself. This matches Supabase's "Securing Edge
-Functions" and "Function configuration" guides (read 1 November): keep
+Functions" and "Function configuration" guides: keep
 `verify_jwt` on for user-facing functions; for cron or worker calls with a
 secret key on `apikey`, turn it off and use `auth: 'secret:<name>'` (named keys
 are created under Settings > API keys); for external webhooks, use
@@ -107,7 +43,7 @@ credential reaches its handler.
 `@supabase/server` accepts only the newer key formats (`sb_publishable_…`,
 `sb_secret_…`) and asymmetric JWT signing keys. The test project must use them.
 
-## 4. Configuration
+## Configuration
 
 Never put a secret in a `VITE_` variable, in chat, in an issue or in a commit.
 `.env.example` lists the names only.
@@ -134,12 +70,12 @@ Never put a secret in a `VITE_` variable, in chat, in an issue or in a commit.
 | `POSTHOG_APP_HOST`, `POSTHOG_PROJECT_ID` | Your machine (verification) | Not sensitive | e.g. `https://eu.posthog.com` and the test project's id |
 | `POSTHOG_PERSONAL_API_KEY` | Your machine (verification) | **Secret** | Personal API key with Query Read, for `scripts/verify-posthog.mjs` |
 
-## 5. Commands
+## Commands
 
 ### Local checks (no credentials)
 
 ```bash
-npm install
+npm ci
 ```
 
 ```bash
@@ -164,12 +100,7 @@ handlers through the `deno` dev dependency.
 
 ### Hosted test project
 
-Every command and flag below was checked against the official CLI 2.122.0
-(`--help`). [TEST-PROJECT-LOG.md](TEST-PROJECT-LOG.md) records which have been
-run against `community-ledger-test`, and where the documented Management API
-was used instead (migrations, seed). Replace `<project-ref>`
-with your **test** project's reference. Commands that need a secret read it from
-your environment or a git-ignored file; never type a secret into chat.
+Use the Supabase CLI installed from the lockfile. Replace `<project-ref>` with your own test project reference. The commands below assume a fresh database, a reachable PostgreSQL connection, and permission to deploy functions and manage secrets.
 
 1. Sign in to the CLI (opens a browser) and link the test project:
 
@@ -201,7 +132,7 @@ npx supabase config diff
 npx supabase config push
 ```
 
-4. Put the Edge Function secrets in `supabase/functions/.env` (git-ignored; the same file the local stack reads). Names come from section 4 and may not start with `SUPABASE_`. Then:
+4. Put the Edge Function secrets in `supabase/functions/.env` (git-ignored; the same file the local stack reads). Use the server-side names in the configuration table. Then:
 
 ```bash
 npx supabase secrets set --env-file supabase/functions/.env
@@ -223,13 +154,13 @@ npx supabase functions deploy payment-webhook process-payments --no-verify-jwt
 node scripts/create-test-users.mjs
 ```
 
-7. Call the worker once by hand. The key comes from your environment, not the command line:
+7. Create a Supabase secret key named `cron` and load it into `SUPABASE_CRON_KEY` in your shell. Use it to call the worker once:
 
 ```bash
 curl -sS -X POST "https://<project-ref>.supabase.co/functions/v1/process-payments" -H "apikey: $SUPABASE_CRON_KEY"
 ```
 
-8. Schedule the worker every minute, following Supabase's "Scheduling Edge Functions" guide (`pg_cron` + `pg_net` + Vault). First enable the two extensions as the Supabase docs show (or from the dashboard):
+8. Schedule the worker every minute, following Supabase’s [scheduling guide](https://supabase.com/docs/guides/functions/schedule-functions) (`pg_cron` + `pg_net` + Vault). First enable the two extensions as the Supabase docs show (or from the dashboard):
 
 ```sql
 create extension if not exists pg_cron with schema pg_catalog;
@@ -258,23 +189,21 @@ select cron.schedule(
 );
 ```
 
-Supabase's guide notes that any database role that can log in can read the key in `net.http_request_queue` while a request waits. That is another reason to use a dedicated `cron` key that can be rotated on its own.
+9. To run the app, set these values in a git-ignored `.env.local` file and restart Vite. Use the accounts from step 6.
 
-9. Build the app against the test project (values in a git-ignored `.env.local`):
-
-```bash
-npm run build
+```dotenv
+VITE_APP_MODE=connected
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-project-publishable-key>
 ```
 
-10. In the Paystack dashboard, in **test mode**, set the webhook URL to
-`https://<project-ref>.supabase.co/functions/v1/payment-webhook`. The adapter
-verifies `x-paystack-signature` with the test secret key, stores the event,
-answers 200, and credits only after `GET /transaction/verify/{reference}`
-confirms `status = success`, `domain = test`, the expected reference, amount
-and NGN. (Where this setting sits in the dashboard could not be checked: the
-paystack.com pages answer with a bot challenge.)
+```bash
+npm run dev
+```
 
-11. Check what PostHog received:
+10. In the [Paystack dashboard](https://paystack.com/docs/payments/webhooks/), select **Test Mode** and set the webhook URL to `https://<project-ref>.supabase.co/functions/v1/payment-webhook`. Use the same Paystack test secret key for checkout, verification and webhook signature validation.
+
+11. If you configured both sides of the optional PostHog integration, run the test payment journey and check what PostHog received:
 
 ```bash
 node scripts/verify-posthog.mjs 24
@@ -296,7 +225,7 @@ project. If it carries nothing about a person, add an entry to
 `scripts/posthog-reviewed-properties.json` and commit it:
 
 ```json
-[{ "name": "$lib", "reason": "Library name added by PostHog; no personal data", "reviewedBy": "Angie Obiesie", "reviewedOn": "2026-11-01" }]
+[{ "name": "$lib", "reason": "Library name added by PostHog; no personal data", "reviewedBy": "Project maintainer", "reviewedOn": "2026-11-01" }]
 ```
 
 Sensitive properties cannot be accepted this way; the script rejects such a
@@ -306,11 +235,9 @@ PostHog project's IP-capture setting and test again rather than accepting it.
 The analytics journey must therefore include viewing a statement, opening a
 receipt and reporting a (fictional) problem, as well as paying.
 
-A **verified** result covers the analytics checks only. It does not complete
-milestone 2; see section 6.
+A **verified** result covers the analytics checks for the queried time window.
 
-12. Check access boundaries with real sign-in sessions (check 2), on your own
-computer from the repository folder, with `.env.local` in place:
+12. Check access boundaries with the fictional accounts from the repository folder, with `.env.local` in place:
 
 ```bash
 node scripts/check-access.mjs
@@ -348,8 +275,7 @@ with no member link and no officer role, and checks with that account's own
 session that every table and view is refused or empty and every privileged
 operation refused (`report_discrepancy` and the checkout probes are not
 called). A table with no rows at all cannot show that anything is hidden, so
-it is reported INCONCLUSIVE and the run ends INCOMPLETE (exit 3); on the test
-project the adjustments table is empty, so that is the expected result there.
+it is reported INCONCLUSIVE and the run ends INCOMPLETE (exit 3); a fresh seeded project has an empty adjustments table, so expect that result there.
 Output is results and counts only; passwords and session tokens are never
 printed or saved.
 
@@ -358,36 +284,3 @@ prompt shows `<Account> email:` (what you type is shown) and then
 `<Account> password (typing is hidden):` (nothing is shown, not even dots;
 Backspace and Ctrl-U work). Ctrl-C at any time, or Ctrl-D on an empty prompt,
 stops the run with exit code 130 and gives the terminal back.
-
-## 6. Milestone 2 completion criteria
-
-Milestone 2 is complete only when **every** item below has been verified
-against the real test projects and the evidence recorded. Progress and
-evidence are kept in [TEST-PROJECT-LOG.md](TEST-PROJECT-LOG.md). As of
-8 November: migrations, seed, auth settings and the four functions are in
-place on `community-ledger-test`; check 3 is verified; check 1 is verified
-manually by Angie except for the unlinked-account screen; check 2 is verified
-live with genuine sessions except for its recorded limitations (adjustment
-isolation could not be shown live because the table is empty, and probes that
-could change data were not run live); checks 4 to 7 have evidence from
-Member A's hosted Paystack test payment (acknowledgement to Paystack
-inferred, not read from Paystack's log); check 10 is verified (PostHog
-verifier `verified` on 8 November); check 9 is verified (declined and
-closed checkouts credited nothing); check 8 is partly verified (excess credit
-and a repeated return confirmation verified live; webhook redelivery and a
-second Paystack verification have no live evidence). Local tests,
-simulated provider responses and the analytics verdict on their own are not
-enough.
-
-| # | Check | Evidence |
-| --- | --- | --- |
-| 1 | **Sign-in:** each fictional member signs in and sees only their own dues; the officer sees all members; an unlinked account sees the "not linked" screen | Screens or responses per account |
-| 2 | **Access boundaries on the live API:** Member A cannot read Member B's rows through the Data API; anonymous requests read nothing; no client can insert payments, allocations or receipts; members cannot call officer or server functions | Recorded API requests and their refusals |
-| 3 | **Gateway:** `create-checkout` and `payment-return` refuse requests without a JWT; `payment-webhook` reaches its handler without one and rejects bad signatures; `process-payments` accepts only the `cron` key | Recorded requests and status codes |
-| 4 | **Paystack test checkout:** Member A pays annual dues on Paystack's hosted test page | Paystack test transaction reference (not a card number) |
-| 5 | **Webhook processing:** the signed `charge.success` is stored, acknowledged, verified with Paystack and posted | `app.provider_events` row and outcome |
-| 6 | **Balances:** Member A's outstanding, overdue and upcoming figures change exactly as expected; the officer report checks all agree | Before/after figures |
-| 7 | **Receipts and reminders:** one receipt for the payment; the matching unsent reminder cancelled | Receipt number; outbox row |
-| 8 | **Duplicate handling:** a resent webhook and a second verification change nothing; two distinct payments for one charge keep the excess as credit with a Needs attention task | Counts before and after |
-| 9 | **Failed and abandoned checkouts:** a declined test payment and a closed checkout credit nothing | Attempt statuses and balances |
-| 10 | **Analytics:** `node scripts/verify-posthog.mjs 24` reports verified for the test project | Script output |

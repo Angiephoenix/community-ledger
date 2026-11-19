@@ -57,7 +57,7 @@ export function DemoDrawer({ ledger, view, open, onClose }: { ledger: LedgerStat
 
           <section className="drawer-sec">
             <h3>View as</h3>
-            <p className="fine">This switch is not a sign-in and gives no real access. Accounts and permissions come in milestone 2.</p>
+            <p className="fine">Switch between fictional member and officer views.</p>
             <div className="seg seg-wrap" role="group" aria-label="View as">
               {ledger.members.map((m) => {
                 const on = view.role === 'member' && view.memberId === m.id;
