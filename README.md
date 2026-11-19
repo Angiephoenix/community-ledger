@@ -4,7 +4,7 @@ Community Ledger is a dues and payments portal for a community group in Nigeria.
 
 ## Try the demo
 
-Use Node.js 20.19+ on the 20.x line, or 22.12+ on a newer line.
+Use Node.js 22.12+ on the 22.x line, or Node.js 24+.
 
 ```bash
 npm ci
