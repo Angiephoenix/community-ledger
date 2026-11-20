@@ -1,6 +1,8 @@
 # Community Ledger
 
-Community Ledger helps members track dues, make payments, view receipts and report discrepancies. Officers can issue levies, reconcile collections and review exceptions.
+A friend told me that members of his community had no easy way to check whether a dues payment had been recorded or what they still owed. The secretary lacked a clear record of payments, too. I started Community Ledger as a volunteer project for the group.
+
+Members can pay dues, check balances and receipts, and report a payment that doesn’t look right. Officers can issue levies, reconcile collections and review discrepancies.
 
 ## Run the demo
 
