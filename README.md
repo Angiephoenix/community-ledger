@@ -1,8 +1,8 @@
 # Community Ledger
 
-A friend told me that members of his community had no easy way to check whether a dues payment had been recorded or what they still owed. The secretary lacked a clear record of payments, too. I started Community Ledger as a volunteer project for the group.
+Community Ledger is a volunteer project built to help a community manage member dues. Members had no clear way to see which payments had been recorded or what they still owed, and the secretary lacked a reliable record of collections.
 
-Members can pay dues, check balances and receipts, and report a payment that doesn’t look right. Officers can issue levies, reconcile collections and review discrepancies.
+The ledger lets members pay dues, check balances, view receipts and report discrepancies. Officers can issue levies, reconcile collections and review payments that need attention.
 
 ## Run the demo
 
